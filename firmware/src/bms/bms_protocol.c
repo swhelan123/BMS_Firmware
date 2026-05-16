@@ -2,6 +2,7 @@
 #include "bms_protocol.h"
 #include "bms_protocol_ids.h"
 #include "bms_config.h"
+#include "bms_constants.h"
 #include "bms_measurements.h"
 #include "bms_faults.h"
 #include "bms_outputs.h"
@@ -438,6 +439,85 @@ static void handle_balance_disable_all(uint8_t seq) {
     send_response(PKT_BALANCE_DISABLE_ALL, seq, &resp, 1u, false);
 }
 
+/* ── One-shot measurement handlers ───────────────────────────────────────────
+ * Each triggers a full measurement cycle, then packs the resulting snapshot.
+ * Response layout:
+ *   MEASURE_CELLS_ONCE: status(1) + cell_count(2) + mv[75][2](150) + ts(4) + valid_bits(10) = 167
+ *   MEASURE_TEMPS_ONCE: status(1) + temp_count(2) + cx10[75][2](150) + ts(4)               = 157
+ *   MEASURE_POWER_ONCE: status(1) + vbat_mv(4) + vpack_mv(4) + i_batt_ma(4) + flags(1) + ts(4) = 18
+ */
+
+#define MEASURE_CELLS_RESP_SIZE  (1u + PKT_GET_CELLS_RESP_FULL)  /* 167 */
+#define MEASURE_TEMPS_RESP_SIZE  (1u + PKT_GET_TEMPS_RESP_SIZE + 4u) /* 157 */
+#define MEASURE_POWER_RESP_SIZE  (18u)
+
+static void handle_measure_cells_once(uint8_t seq) {
+    BmsResult r = bms_measurements_run_cell_cycle();
+    const CellSnapshot *cells = bms_measurements_get_cells();
+
+    uint8_t resp[MEASURE_CELLS_RESP_SIZE];
+    memset(resp, 0, sizeof(resp));
+    resp[0] = (r == BMS_OK) ? 0u : 1u;
+    resp[1] = (uint8_t)(TOTAL_CELL_COUNT & 0xFFu);
+    resp[2] = (uint8_t)((TOTAL_CELL_COUNT >> 8u) & 0xFFu);
+    for (uint8_t i = 0; i < TOTAL_CELL_COUNT; i++) {
+        resp[3u + i*2u]   = (uint8_t)(cells->mv[i] & 0xFFu);
+        resp[3u + i*2u+1u] = (uint8_t)(cells->mv[i] >> 8u);
+    }
+    uint32_t ts = cells->timestamp_ms;
+    resp[153u] = (uint8_t)ts;       resp[154u] = (uint8_t)(ts >> 8u);
+    resp[155u] = (uint8_t)(ts >> 16u); resp[156u] = (uint8_t)(ts >> 24u);
+    for (uint8_t i = 0; i < TOTAL_CELL_COUNT; i++) {
+        if (cells->valid[i]) { resp[157u + i / 8u] |= (uint8_t)(1u << (i % 8u)); }
+    }
+    send_response(PKT_MEASURE_CELLS_ONCE, seq, resp, sizeof(resp), false);
+}
+
+static void handle_measure_temps_once(uint8_t seq) {
+    BmsResult r = bms_measurements_run_temp_cycle();
+    const TempSnapshot *temps = bms_measurements_get_temps();
+
+    uint8_t resp[MEASURE_TEMPS_RESP_SIZE];
+    memset(resp, 0, sizeof(resp));
+    resp[0] = (r == BMS_OK) ? 0u : 1u;
+    resp[1] = (uint8_t)(TOTAL_TEMP_COUNT & 0xFFu);
+    resp[2] = 0u;
+    for (uint8_t i = 0; i < TOTAL_TEMP_COUNT; i++) {
+        uint16_t raw = (uint16_t)temps->cx10[i];
+        resp[3u + i*2u]   = (uint8_t)(raw & 0xFFu);
+        resp[3u + i*2u+1u] = (uint8_t)(raw >> 8u);
+    }
+    uint32_t ts = temps->timestamp_ms;
+    resp[153u] = (uint8_t)ts;        resp[154u] = (uint8_t)(ts >> 8u);
+    resp[155u] = (uint8_t)(ts >> 16u); resp[156u] = (uint8_t)(ts >> 24u);
+    send_response(PKT_MEASURE_TEMPS_ONCE, seq, resp, sizeof(resp), false);
+}
+
+static void handle_measure_power_once(uint8_t seq) {
+    BmsResult r = bms_measurements_run_pack_cycle();
+    const PackMeasurement *pack = bms_measurements_get_pack();
+
+    uint8_t resp[MEASURE_POWER_RESP_SIZE];
+    memset(resp, 0, sizeof(resp));
+    resp[0] = (r == BMS_OK) ? 0u : 1u;
+    uint32_t vbat = (uint32_t)pack->vbat_mv;
+    resp[1] = (uint8_t)vbat; resp[2] = (uint8_t)(vbat>>8u);
+    resp[3] = (uint8_t)(vbat>>16u); resp[4] = (uint8_t)(vbat>>24u);
+    uint32_t vpk = (uint32_t)pack->vpack_mv;
+    resp[5] = (uint8_t)vpk; resp[6] = (uint8_t)(vpk>>8u);
+    resp[7] = (uint8_t)(vpk>>16u); resp[8] = (uint8_t)(vpk>>24u);
+    uint32_t ib = (uint32_t)pack->i_batt_ma;
+    resp[9] = (uint8_t)ib; resp[10] = (uint8_t)(ib>>8u);
+    resp[11] = (uint8_t)(ib>>16u); resp[12] = (uint8_t)(ib>>24u);
+    resp[13] = (pack->vbat_valid   ? 1u : 0u) |
+               (pack->vpack_valid  ? 2u : 0u) |
+               (pack->i_batt_valid ? 4u : 0u);
+    uint32_t ts = pack->timestamp_ms;
+    resp[14] = (uint8_t)ts; resp[15] = (uint8_t)(ts>>8u);
+    resp[16] = (uint8_t)(ts>>16u); resp[17] = (uint8_t)(ts>>24u);
+    send_response(PKT_MEASURE_POWER_ONCE, seq, resp, sizeof(resp), false);
+}
+
 /* ── Frame dispatch ───────────────────────────────────────────────────────── */
 static void dispatch_packet(uint16_t pkt_id, uint8_t seq,
                              const uint8_t *payload, uint16_t payload_len) {
@@ -461,6 +541,9 @@ static void dispatch_packet(uint16_t pkt_id, uint8_t seq,
         case PKT_PROBE_ISL28022:          handle_probe_isl28022(seq); break;
         case PKT_READ_VPACK_RAW:          handle_read_vpack_raw(seq); break;
         case PKT_BALANCE_DISABLE_ALL:     handle_balance_disable_all(seq); break;
+        case PKT_MEASURE_CELLS_ONCE:      handle_measure_cells_once(seq); break;
+        case PKT_MEASURE_TEMPS_ONCE:      handle_measure_temps_once(seq); break;
+        case PKT_MEASURE_POWER_ONCE:      handle_measure_power_once(seq); break;
         case PKT_GET_BOOT_INFO:           handle_get_boot_info(seq); break;
         case PKT_ENTER_BOOTLOADER:        handle_enter_bootloader(seq, payload, payload_len); break;
         /* Bootloader update packets not supported in application firmware */

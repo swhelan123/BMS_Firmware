@@ -728,6 +728,80 @@ def cmd_read_vpack_raw(args) -> int:
         mgr.disconnect()
 
 
+def cmd_measure_cells(args) -> int:
+    mgr, model = _connect(args)
+    try:
+        r = model.measure_cells_once()
+        status = r['status']
+        if args.json:
+            _out(r, True)
+        else:
+            mv = r['cells_mv']
+            print(f"  status:     {status}  ({'OK' if status == 0 else 'FAIL'})")
+            print(f"  cell_count: {r['cell_count']}")
+            if mv and status == 0:
+                print(f"  min_mv:     {min(mv)}")
+                print(f"  max_mv:     {max(mv)}")
+                print(f"  avg_mv:     {sum(mv) // len(mv)}")
+                print(f"  mismatch:   {max(mv) - min(mv)}")
+            invalid = sum(1 for v in r.get('validity', []) if not v)
+            if invalid:
+                print(f"  invalid_cells: {invalid}")
+        return 0 if status == 0 else 1
+    except (ProtocolError, TargetRefusedError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    finally:
+        mgr.disconnect()
+
+
+def cmd_measure_temps(args) -> int:
+    mgr, model = _connect(args)
+    try:
+        r = model.measure_temps_once()
+        status = r['status']
+        if args.json:
+            _out(r, True)
+        else:
+            temps = r['temps_cx10']
+            valid = [t for t in temps if t != -0x8000]
+            inv   = r['temp_count'] - len(valid)
+            print(f"  status:     {status}  ({'OK' if status == 0 else 'FAIL'})")
+            print(f"  temp_count: {r['temp_count']}")
+            if valid:
+                print(f"  max:  {max(valid)/10:.1f}°C")
+                print(f"  avg:  {sum(valid)/len(valid)/10:.1f}°C")
+                print(f"  min:  {min(valid)/10:.1f}°C")
+            if inv:
+                print(f"  invalid: {inv}")
+        return 0 if status == 0 else 1
+    except (ProtocolError, TargetRefusedError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    finally:
+        mgr.disconnect()
+
+
+def cmd_measure_power(args) -> int:
+    mgr, model = _connect(args)
+    try:
+        r = model.measure_power_once()
+        status = r['status']
+        if args.json:
+            _out(r, True)
+        else:
+            print(f"  status:      {status}  ({'OK' if status == 0 else 'PARTIAL/FAIL'})")
+            print(f"  vbat_mv:     {r['vbat_mv']}  (valid={r['vbat_valid']})")
+            print(f"  vpack_mv:    {r['vpack_mv']}  (valid={r['vpack_valid']})")
+            print(f"  i_batt_ma:   {r['i_batt_ma']}  (valid={r['i_batt_valid']})")
+        return 0 if status == 0 else 1
+    except (ProtocolError, TargetRefusedError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    finally:
+        mgr.disconnect()
+
+
 def cmd_balance_disable_all(args) -> int:
     mgr, model = _connect(args)
     try:
@@ -888,6 +962,19 @@ def build_parser() -> argparse.ArgumentParser:
     p = read_sub.add_parser('vpack-raw', help='Read Vpack ADC raw count (PA1, ADC1_IN2)')
     _add_connect_args(p)
 
+    # ── measure ───────────────────────────────────────────────────────────────
+    meas     = sub.add_parser('measure', help='Trigger one-shot measurement cycle and return results')
+    meas_sub = meas.add_subparsers(dest='meas_command')
+
+    p = meas_sub.add_parser('cells', help='Run ADCV on CELL chain and return all cell voltages')
+    _add_connect_args(p)
+
+    p = meas_sub.add_parser('temps', help='Assert S-outputs, run ADCV on TEMP chain, return temperatures')
+    _add_connect_args(p)
+
+    p = meas_sub.add_parser('power', help='Read ISL28022 (Vbat/I) and Vpack ADC (PA1)')
+    _add_connect_args(p)
+
     # ── balance ───────────────────────────────────────────────────────────────
     balance     = sub.add_parser('balance', help='Balance control')
     balance_sub = balance.add_subparsers(dest='balance_command')
@@ -976,6 +1063,14 @@ def main(argv=None) -> int:
         if not rc:
             return 1
         if rc == 'vpack-raw': return cmd_read_vpack_raw(args)
+
+    elif args.command == 'measure':
+        mc = getattr(args, 'meas_command', None)
+        if not mc:
+            return 1
+        if mc == 'cells': return cmd_measure_cells(args)
+        if mc == 'temps': return cmd_measure_temps(args)
+        if mc == 'power': return cmd_measure_power(args)
 
     elif args.command == 'balance':
         bc = getattr(args, 'balance_command', None)

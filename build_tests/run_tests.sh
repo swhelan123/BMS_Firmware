@@ -45,6 +45,29 @@ run_test() {
 }
 
 run_test test_pec15            tests/unit/test_pec15.c
+
+# test_measurements_decode: uses bms_measurements.c with its own ltc6812/isl/adc stubs
+# (does NOT link ltc6812.c — mock_meas_deps.c provides all driver stubs)
+echo "==> Building test_measurements_decode ..."
+MEAS_SRCS=(
+    firmware/src/bms/bms_measurements.c
+    tests/mock_bsp/mock_board_clock.c
+    tests/mock_bsp/mock_meas_deps.c
+    tests/vendor/unity/unity.c
+    tests/unit/test_measurements_decode.c
+)
+if clang $CFLAGS $INCLUDES "${MEAS_SRCS[@]}" -o build_tests/test_measurements_decode 2>&1; then
+    echo "    Running ..."
+    if build_tests/test_measurements_decode; then
+        PASS=$((PASS+1))
+    else
+        FAIL=$((FAIL+1))
+    fi
+else
+    echo "    BUILD FAILED"
+    FAIL=$((FAIL+1))
+fi
+echo ""
 run_test test_protocol_crc     tests/unit/test_protocol_crc.c \
     firmware/src/bms/bms_protocol.c \
     tests/mock_bsp/mock_protocol_deps.c

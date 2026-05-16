@@ -17,7 +17,9 @@ from .packet_defs import (
     PKT_GET_GPIO_SNAPSHOT, PKT_GET_OUTPUTS_SNAPSHOT,
     PKT_PROBE_CELL_CHAIN, PKT_PROBE_TEMP_CHAIN,
     PKT_PROBE_ISL28022, PKT_READ_VPACK_RAW, PKT_BALANCE_DISABLE_ALL,
+    PKT_MEASURE_CELLS_ONCE, PKT_MEASURE_TEMPS_ONCE, PKT_MEASURE_POWER_ONCE,
     ENTER_BOOTLOADER_MAGIC, CONFIG_SCHEMA_SIZE,
+    TOTAL_CELL_COUNT, TOTAL_TEMP_COUNT,
 )
 
 
@@ -259,3 +261,67 @@ class BmsProtocolClient:
     def balance_disable_all(self) -> bool:
         p = self.send_request(PKT_BALANCE_DISABLE_ALL)
         return p[0] == 0
+
+    # ── One-shot measurement methods ─────────────────────────────────────────
+
+    def measure_cells_once(self) -> dict:
+        """Trigger a cell measurement cycle and return the resulting snapshot.
+
+        Response: status(1) + cell_count(2) + mv[75×2](150) + ts(4) + valid_bits(10).
+        """
+        p = self.send_request(PKT_MEASURE_CELLS_ONCE)
+        if len(p) < 167:
+            raise ProtocolError(f"MEASURE_CELLS_ONCE too short: {len(p)}")
+        status     = p[0]
+        cell_count = struct.unpack_from('<H', p, 1)[0]
+        cells_mv   = [struct.unpack_from('<H', p, 3 + i*2)[0] for i in range(cell_count)]
+        ts         = struct.unpack_from('<I', p, 153)[0]
+        validity   = [bool(p[157 + i//8] & (1 << (i % 8))) for i in range(cell_count)]
+        return {
+            'status':     status,
+            'cell_count': cell_count,
+            'cells_mv':   cells_mv,
+            'validity':   validity,
+            'timestamp_ms': ts,
+        }
+
+    def measure_temps_once(self) -> dict:
+        """Trigger a temperature measurement cycle and return the resulting snapshot.
+
+        Response: status(1) + temp_count(2) + cx10[75×2](150) + ts(4).
+        """
+        p = self.send_request(PKT_MEASURE_TEMPS_ONCE)
+        if len(p) < 157:
+            raise ProtocolError(f"MEASURE_TEMPS_ONCE too short: {len(p)}")
+        status     = p[0]
+        temp_count = struct.unpack_from('<H', p, 1)[0]
+        temps_cx10 = [struct.unpack_from('<h', p, 3 + i*2)[0] for i in range(temp_count)]
+        ts         = struct.unpack_from('<I', p, 153)[0]
+        return {
+            'status':     status,
+            'temp_count': temp_count,
+            'temps_cx10': temps_cx10,
+            'timestamp_ms': ts,
+        }
+
+    def measure_power_once(self) -> dict:
+        """Trigger a pack measurement cycle (ISL28022 + Vpack ADC) and return results.
+
+        Response: status(1) + vbat_mv(4) + vpack_mv(4) + i_batt_ma(4) + flags(1) + ts(4).
+        flags: bit0=vbat_valid, bit1=vpack_valid, bit2=i_batt_valid.
+        """
+        p = self.send_request(PKT_MEASURE_POWER_ONCE)
+        if len(p) < 18:
+            raise ProtocolError(f"MEASURE_POWER_ONCE too short: {len(p)}")
+        flags = p[13]
+        return {
+            'status':       p[0],
+            'vbat_mv':      struct.unpack_from('<i', p, 1)[0],
+            'vpack_mv':     struct.unpack_from('<i', p, 5)[0],
+            'i_batt_ma':    struct.unpack_from('<i', p, 9)[0],
+            'flags':        flags,
+            'vbat_valid':   bool(flags & 1),
+            'vpack_valid':  bool(flags & 2),
+            'i_batt_valid': bool(flags & 4),
+            'timestamp_ms': struct.unpack_from('<I', p, 14)[0],
+        }

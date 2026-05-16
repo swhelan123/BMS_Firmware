@@ -19,7 +19,7 @@
 5	125	1778896015905820557	CMakeFiles/bms_firmware.elf.dir/src/bms/bms_faults.c.obj	f0559b9733d920a
 109	165	1778896016010039078	CMakeFiles/bms_firmware.elf.dir/src/bms/bms_state.c.obj	9ae2dbf13e913706
 5	141	1778939505703225762	CMakeFiles/bms_firmware.elf.dir/src/bms_main_loop.c.obj	a46f880ea16714d4
-5	243	1778939505702835388	CMakeFiles/bms_firmware.elf.dir/src/bms/bms_protocol.c.obj	9cc8aec98b8bcaf7
-243	314	1778939505940983538	bms_firmware.elf	2377ffcd7154b1f
+1	258	1778940706134203990	CMakeFiles/bms_firmware.elf.dir/src/bms/bms_protocol.c.obj	9cc8aec98b8bcaf7
+258	720	1778940706391341683	bms_firmware.elf	2377ffcd7154b1f
 3	112	1778896015903314021	CMakeFiles/bms_firmware.elf.dir/src/drivers/isl28022.c.obj	a526f135f86c174b
 5	146	1778939505703030971	CMakeFiles/bms_firmware.elf.dir/src/bms/bms_diagnostics.c.obj	22f013edc2648ac4

@@ -27,6 +27,10 @@
 #define PKT_PROBE_ISL28022          ((uint16_t)0x0308u)
 #define PKT_READ_VPACK_RAW          ((uint16_t)0x0309u)
 #define PKT_BALANCE_DISABLE_ALL     ((uint16_t)0x030Au)
+/* One-shot measurement commands (0x030B–0x030D) */
+#define PKT_MEASURE_CELLS_ONCE      ((uint16_t)0x030Bu)
+#define PKT_MEASURE_TEMPS_ONCE      ((uint16_t)0x030Cu)
+#define PKT_MEASURE_POWER_ONCE      ((uint16_t)0x030Du)
 #define PKT_GET_BOOT_INFO           ((uint16_t)0x0401u)
 #define PKT_ENTER_BOOTLOADER        ((uint16_t)0x0402u)
 #define PKT_BOOT_UPDATE_BEGIN       ((uint16_t)0x0403u)

@@ -14,6 +14,7 @@ from ..protocol.packet_defs import (
     PKT_GET_GPIO_SNAPSHOT, PKT_GET_OUTPUTS_SNAPSHOT,
     PKT_PROBE_CELL_CHAIN, PKT_PROBE_TEMP_CHAIN,
     PKT_PROBE_ISL28022, PKT_READ_VPACK_RAW, PKT_BALANCE_DISABLE_ALL,
+    PKT_MEASURE_CELLS_ONCE, PKT_MEASURE_TEMPS_ONCE, PKT_MEASURE_POWER_ONCE,
 )
 from ..connection.device_state import DeviceState, DeviceMode, CapabilitiesState
 from ..config.schema import BmsConfig
@@ -242,6 +243,20 @@ class TargetModel:
     def balance_disable_all(self) -> bool:
         self._require_app_mode()
         return self._client.balance_disable_all()
+
+    # ── One-shot measurements ─────────────────────────────────────────────────
+
+    def measure_cells_once(self) -> dict:
+        self._require_app_mode()
+        return self._client.measure_cells_once()
+
+    def measure_temps_once(self) -> dict:
+        self._require_app_mode()
+        return self._client.measure_temps_once()
+
+    def measure_power_once(self) -> dict:
+        self._require_app_mode()
+        return self._client.measure_power_once()
 
     # ── Package compatibility ─────────────────────────────────────────────────
 

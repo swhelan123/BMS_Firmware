@@ -18,6 +18,21 @@ const CellSnapshot    *bms_measurements_get_cells(void) { return &s_cells; }
 const TempSnapshot    *bms_measurements_get_temps(void) { return &s_temps; }
 const PackMeasurement *bms_measurements_get_pack(void)  { return &s_pack; }
 
+BmsResult bms_measurements_run_cell_cycle(void) { return BMS_OK; }
+BmsResult bms_measurements_run_temp_cycle(void) { return BMS_OK; }
+BmsResult bms_measurements_run_pack_cycle(void) { return BMS_OK; }
+void bms_measurements_update_pack(int32_t vbat_mv, int32_t vpack_mv,
+                                   int32_t i_batt_ma,
+                                   bool vbat_valid, bool vpack_valid,
+                                   bool i_batt_valid) {
+    s_pack.vbat_mv      = vbat_mv;
+    s_pack.vpack_mv     = vpack_mv;
+    s_pack.i_batt_ma    = i_batt_ma;
+    s_pack.vbat_valid   = vbat_valid;
+    s_pack.vpack_valid  = vpack_valid;
+    s_pack.i_batt_valid = i_batt_valid;
+}
+
 BmsState bms_state_get(void)                     { return s_state; }
 void     bms_state_request_bootloader_entry(void) {}
 

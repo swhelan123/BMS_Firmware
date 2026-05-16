@@ -36,6 +36,7 @@ from ..protocol.packet_defs import (
     PKT_GET_GPIO_SNAPSHOT, PKT_GET_OUTPUTS_SNAPSHOT,
     PKT_PROBE_CELL_CHAIN, PKT_PROBE_TEMP_CHAIN,
     PKT_PROBE_ISL28022, PKT_READ_VPACK_RAW, PKT_BALANCE_DISABLE_ALL,
+    PKT_MEASURE_CELLS_ONCE, PKT_MEASURE_TEMPS_ONCE, PKT_MEASURE_POWER_ONCE,
     PROTOCOL_VERSION, HW_PROFILE_ID, CONFIG_SCHEMA_SIZE,
     FIRMWARE_TYPE_BMS_APP, FIRMWARE_TYPE_BOOTLOADER,
     TOTAL_CELL_COUNT, TOTAL_TEMP_COUNT,
@@ -212,6 +213,9 @@ class FakeTarget:
             PKT_PROBE_ISL28022:         lambda: self._h_probe_isl28022(seq),
             PKT_READ_VPACK_RAW:         lambda: self._h_read_vpack_raw(seq),
             PKT_BALANCE_DISABLE_ALL:    lambda: self._h_balance_disable_all(seq),
+            PKT_MEASURE_CELLS_ONCE:     lambda: self._h_measure_cells_once(seq),
+            PKT_MEASURE_TEMPS_ONCE:     lambda: self._h_measure_temps_once(seq),
+            PKT_MEASURE_POWER_ONCE:     lambda: self._h_measure_power_once(seq),
             PKT_GET_BOOT_INFO:          lambda: self._h_boot_info(seq),
             PKT_ENTER_BOOTLOADER:       lambda: self._h_enter_bootloader(seq, payload),
             PKT_BOOT_UPDATE_BEGIN:      lambda: self._h_boot_update_begin(seq, payload),
@@ -482,6 +486,63 @@ class FakeTarget:
         if self._firmware_type != FIRMWARE_TYPE_BMS_APP:
             return self._error(PKT_BALANCE_DISABLE_ALL, seq, 0x0A)
         return self._respond(PKT_BALANCE_DISABLE_ALL, bytes([0]), seq)
+
+    def _h_measure_cells_once(self, seq: int) -> bytes:
+        if self._firmware_type != FIRMWARE_TYPE_BMS_APP:
+            return self._error(PKT_MEASURE_CELLS_ONCE, seq, 0x0A)
+        is_fault = bool((self._active_faults >> FAULT_BIT_ISOSPI_CELL) & 1)
+        status = 1 if is_fault else 0
+        # status(1) + cell_count(2) + mv[75×2](150) + ts(4) + valid_bits(10) = 167
+        resp = bytearray(167)
+        resp[0] = status
+        struct.pack_into('<H', resp, 1, TOTAL_CELL_COUNT)
+        for i, mv in enumerate(self._cell_mv):
+            struct.pack_into('<H', resp, 3 + i*2, 0 if is_fault else (mv & 0xFFFF))
+        struct.pack_into('<I', resp, 153, self._uptime_ms)
+        if not is_fault:
+            for i in range(TOTAL_CELL_COUNT):
+                resp[157 + i // 8] |= (1 << (i % 8))
+        return self._respond(PKT_MEASURE_CELLS_ONCE, bytes(resp), seq)
+
+    def _h_measure_temps_once(self, seq: int) -> bytes:
+        if self._firmware_type != FIRMWARE_TYPE_BMS_APP:
+            return self._error(PKT_MEASURE_TEMPS_ONCE, seq, 0x0A)
+        is_fault = bool((self._active_faults >> FAULT_BIT_ISOSPI_TEMP) & 1)
+        status = 1 if is_fault else 0
+        # status(1) + temp_count(2) + cx10[75×2](150) + ts(4) = 157
+        resp = bytearray(157)
+        resp[0] = status
+        struct.pack_into('<H', resp, 1, TOTAL_TEMP_COUNT)
+        for i, t in enumerate(self._temps_cx10):
+            val = TEMP_INVALID_CX10 if is_fault else t
+            struct.pack_into('<H', resp, 3 + i*2, val & 0xFFFF)
+        struct.pack_into('<I', resp, 153, self._uptime_ms)
+        return self._respond(PKT_MEASURE_TEMPS_ONCE, bytes(resp), seq)
+
+    def _h_measure_power_once(self, seq: int) -> bytes:
+        if self._firmware_type != FIRMWARE_TYPE_BMS_APP:
+            return self._error(PKT_MEASURE_POWER_ONCE, seq, 0x0A)
+        i2c_fault   = bool((self._active_faults >> FAULT_BIT_I2C_ISL28022) & 1)
+        vpack_fault = bool((self._active_faults >> FAULT_BIT_VPACK_INVALID) & 1)
+        vbat_valid   = not i2c_fault
+        vpack_valid  = not vpack_fault
+        ibatt_valid  = not i2c_fault
+        status = 1 if (i2c_fault or vpack_fault) else 0
+        vbat_mv   = 48000 if vbat_valid else 0
+        vpack_mv  = 48000 if vpack_valid else 0
+        i_batt_ma = 0
+        flags = ((1 if vbat_valid else 0) |
+                 (2 if vpack_valid else 0) |
+                 (4 if ibatt_valid else 0))
+        # status(1) + vbat_mv(4) + vpack_mv(4) + i_batt_ma(4) + flags(1) + ts(4) = 18
+        resp = bytearray(18)
+        resp[0] = status
+        struct.pack_into('<i', resp, 1,  vbat_mv)
+        struct.pack_into('<i', resp, 5,  vpack_mv)
+        struct.pack_into('<i', resp, 9,  i_batt_ma)
+        resp[13] = flags
+        struct.pack_into('<I', resp, 14, self._uptime_ms)
+        return self._respond(PKT_MEASURE_POWER_ONCE, bytes(resp), seq)
 
     # ── State injection helpers ───────────────────────────────────────────────
 
