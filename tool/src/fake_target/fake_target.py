@@ -2,26 +2,23 @@
 
 Implements the full BMS request/response protocol over a serial-like interface.
 Can run as:
-  - Subprocess on a virtual serial port pair (socat for Linux/macOS)
-  - In-process mock for unit tests (use FakeTargetInProcess)
-
-Usage (subprocess):
-  python -m tool.src.fake_target.fake_target --port /dev/pts/3
-
-Usage (in-process):
-  from tool.src.fake_target.fake_target import FakeTargetInProcess
-  ft = FakeTargetInProcess()
-  client_bytes_in, server_bytes_in = ft.get_pipes()
-  # Feed frames via server_bytes_in; responses arrive on client_bytes_in
+  - TCP server: FakeTarget.serve_tcp(host, port)
+  - In-process mock: FakeTargetInProcess
+  - Serial subprocess: run_on_serial_port()
 
 Simulation modes:
-  - 'healthy'       — nominal voltages/temps, no faults
-  - 'cell_uv'       — one cell at 2400 mV (UV fault bit 1)
-  - 'cell_ov'       — one cell at 4300 mV (OV fault bit 0)
-  - 'temp_invalid'  — all temps INVALID (bit 9 active)
-  - 'isospi_fault'  — ISOSPI_CELL fault active (bit 15)
-  - 'config_error'  — CONFIG_INVALID fault active (bit 19)
+  - 'healthy'         — nominal voltages/temps, no faults
+  - 'safe_invalid'    — all measurements invalid (MEAS_ERROR), no faults
+  - 'cell_uv'         — cell[0] at 2400 mV, FAULT_CELL_UV active
+  - 'cell_ov'         — cell[0] at 4300 mV, FAULT_CELL_OV active
+  - 'temp_invalid'    — all temps INVALID, FAULT_TEMP_READ_INVALID active
+  - 'vpack_invalid'   — FAULT_VPACK_INVALID active
+  - 'isospi_fault'    — FAULT_ISOSPI_CELL active
+  - 'config_error'    — FAULT_CONFIG_INVALID active
+  - 'precharge_fault' — FAULT_PRECHARGE_TIMEOUT active
+  - 'bootloader'      — capabilities report FIRMWARE_TYPE_BOOTLOADER
 """
+import socket
 import struct
 import threading
 import io
@@ -37,27 +34,41 @@ from ..protocol.packet_defs import (
     PKT_BOOT_UPDATE_BEGIN, PKT_BOOT_UPDATE_CHUNK,
     PKT_BOOT_UPDATE_FINALIZE, PKT_BOOT_UPDATE_ABORT,
     PROTOCOL_VERSION, HW_PROFILE_ID, CONFIG_SCHEMA_SIZE,
-    FIRMWARE_TYPE_BMS_APP, TOTAL_CELL_COUNT, TOTAL_TEMP_COUNT,
+    FIRMWARE_TYPE_BMS_APP, FIRMWARE_TYPE_BOOTLOADER,
+    TOTAL_CELL_COUNT, TOTAL_TEMP_COUNT,
 )
 from ..config.schema import BmsConfig
 
 TEMP_INVALID_CX10 = -0x8000  # sentinel
 
 # Fault bit positions (must match protocol/fault_bits.yaml)
-FAULT_BIT_CELL_OV          = 0
-FAULT_BIT_CELL_UV          = 1
+FAULT_BIT_CELL_OV           = 0
+FAULT_BIT_CELL_UV           = 1
 FAULT_BIT_TEMP_READ_INVALID = 9
-FAULT_BIT_ISOSPI_CELL      = 15
-FAULT_BIT_CONFIG_INVALID   = 19
+FAULT_BIT_VPACK_INVALID     = 12
+FAULT_BIT_PRECHARGE_TIMEOUT = 13
+FAULT_BIT_ISOSPI_CELL       = 15
+FAULT_BIT_CONFIG_INVALID    = 19
 
 BL_ENTRY_FLAG = 0xB007B007
 
 # ── Simulation mode presets ───────────────────────────────────────────────────
 
+_KNOWN_MODES = frozenset([
+    'healthy', 'safe_invalid', 'cell_uv', 'cell_ov', 'temp_invalid',
+    'vpack_invalid', 'isospi_fault', 'config_error', 'precharge_fault',
+    'bootloader',
+])
+
+
 def _apply_simulation_mode(target: 'FakeTarget', mode: str) -> None:
     """Configure FakeTarget state for a named simulation mode."""
     if mode == 'healthy':
         pass  # defaults are healthy
+    elif mode == 'safe_invalid':
+        # Measurements not yet valid — no active faults, but no good data either
+        target.set_cell_mv([0] * TOTAL_CELL_COUNT)
+        target.set_temps_cx10([TEMP_INVALID_CX10] * TOTAL_TEMP_COUNT)
     elif mode == 'cell_uv':
         cell_mv = [3700] * TOTAL_CELL_COUNT
         cell_mv[0] = 2400
@@ -71,10 +82,16 @@ def _apply_simulation_mode(target: 'FakeTarget', mode: str) -> None:
     elif mode == 'temp_invalid':
         target.set_temps_cx10([TEMP_INVALID_CX10] * TOTAL_TEMP_COUNT)
         target.inject_fault(FAULT_BIT_TEMP_READ_INVALID)
+    elif mode == 'vpack_invalid':
+        target.inject_fault(FAULT_BIT_VPACK_INVALID)
     elif mode == 'isospi_fault':
         target.inject_fault(FAULT_BIT_ISOSPI_CELL)
     elif mode == 'config_error':
         target.inject_fault(FAULT_BIT_CONFIG_INVALID)
+    elif mode == 'precharge_fault':
+        target.inject_fault(FAULT_BIT_PRECHARGE_TIMEOUT)
+    elif mode == 'bootloader':
+        target.set_firmware_type(FIRMWARE_TYPE_BOOTLOADER)
     else:
         raise ValueError(f"Unknown simulation mode: {mode!r}")
 
@@ -87,18 +104,53 @@ class FakeTarget:
     def __init__(self, mode: str = 'healthy'):
         self._decoder = FrameDecoder()
         self._config = BmsConfig()
-        self._active_faults  = 0
-        self._latched_faults = 0
-        self._cell_mv = [3700] * TOTAL_CELL_COUNT
-        self._temps_cx10 = [250] * TOTAL_TEMP_COUNT
-        self._uptime_ms = 0
+        self._active_faults   = 0
+        self._latched_faults  = 0
+        self._cell_mv         = [3700] * TOTAL_CELL_COUNT
+        self._temps_cx10      = [250]  * TOTAL_TEMP_COUNT
+        self._uptime_ms       = 0
         self._pec_errors_cell = 0
         self._pec_errors_temp = 0
-        self._i2c_errors = 0
-        self._open_wire_valid = False
+        self._i2c_errors      = 0
+        self._open_wire_valid    = False
         self._open_wire_detected = [False] * TOTAL_CELL_COUNT
-        self._reset_cause = 0x01  # POR on fresh boot
+        self._reset_cause     = 0x01  # POR on fresh boot
+        self._firmware_type   = FIRMWARE_TYPE_BMS_APP
         _apply_simulation_mode(self, mode)
+
+    # ── TCP server ────────────────────────────────────────────────────────────
+
+    @classmethod
+    def serve_tcp(cls, host: str = '127.0.0.1', port: int = 65102,
+                  mode: str = 'healthy') -> None:
+        """Block and serve connections; spawns a thread per client with a fresh FakeTarget."""
+        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server.bind((host, port))
+        server.listen(5)
+        print(f"[fake_target] listening on {host}:{port}  mode={mode}", flush=True)
+        while True:
+            conn, addr = server.accept()
+            print(f"[fake_target] client {addr}", flush=True)
+            t = threading.Thread(target=cls._handle_tcp_client,
+                                 args=(conn, mode), daemon=True)
+            t.start()
+
+    @classmethod
+    def _handle_tcp_client(cls, conn, mode: str) -> None:
+        target = cls(mode=mode)
+        try:
+            while True:
+                data = conn.recv(4096)
+                if not data:
+                    break
+                resp = target.feed(data)
+                if resp:
+                    conn.sendall(resp)
+        except Exception:
+            pass
+        finally:
+            conn.close()
 
     def feed(self, data: bytes) -> bytes:
         """Feed incoming bytes; returns all response bytes."""
@@ -149,7 +201,7 @@ class FakeTarget:
 
     def _h_capabilities(self, seq: int) -> bytes:
         resp = bytearray(26)
-        struct.pack_into('<H', resp, 0,  FIRMWARE_TYPE_BMS_APP)
+        struct.pack_into('<H', resp, 0,  self._firmware_type)
         resp[2]  = 0   # major
         resp[3]  = 1   # minor
         resp[4]  = 0   # patch
@@ -299,6 +351,9 @@ class FakeTarget:
         if detected:
             self._open_wire_detected = list(detected)[:TOTAL_CELL_COUNT]
 
+    def set_firmware_type(self, fw_type: int) -> None:
+        self._firmware_type = fw_type
+
 
 # ── In-process helper for unit tests ─────────────────────────────────────────
 
@@ -352,8 +407,15 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='BMS fake target')
     parser.add_argument('--port', required=True, help='Serial port (e.g. /dev/pts/3)')
     parser.add_argument('--baud', type=int, default=115200)
-    parser.add_argument('--mode', default='healthy',
-                        choices=['healthy', 'cell_uv', 'cell_ov', 'temp_invalid',
-                                 'isospi_fault', 'config_error'])
+    parser.add_argument('--mode', default='healthy', choices=sorted(_KNOWN_MODES))
+    parser.add_argument('--tcp', action='store_true',
+                        help='Listen on TCP instead of serial (ignores --port/--baud)')
+    parser.add_argument('--bind', default='127.0.0.1:65102',
+                        metavar='HOST:PORT', help='TCP bind address (with --tcp)')
     args = parser.parse_args()
-    run_on_serial_port(args.port, args.baud, args.mode)
+
+    if args.tcp:
+        host, port_str = args.bind.rsplit(':', 1)
+        FakeTarget.serve_tcp(host, int(port_str), mode=args.mode)
+    else:
+        run_on_serial_port(args.port, args.baud, args.mode)

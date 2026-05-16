@@ -1,60 +1,141 @@
-# Desktop Tool
+# BMS Desktop Tool
 
-BMS monitoring, configuration, and firmware update tool for the BMS system.
+Monitoring, configuration, and firmware update tool for the BMS system.
+
+## Install
+
+```bash
+pip install pyserial PyYAML pytest
+pip install PyQt6   # GUI only
+```
 
 ## Architecture
 
 **Stack:** Python 3.11+ / PyQt6 / pyserial  
-**Pattern:** Single-window multi-page application with a central connection state machine
+**Pattern:** Shared backend → thin CLI + PyQt6 GUI; backend owns all protocol/config/package logic
 
 ```
 tool/
   src/
-    main.py                  Entry point; creates app + main window
-    connection/
-      connection_manager.py  Serial port open/close; GET_CAPABILITIES; mode tracking
-      device_state.py        CapabilitiesState, DeviceMode enum, current device info
+    core/
+      app_state.py           Central state (AppState + *State dataclasses); observer pattern
+      connection_manager.py  TcpPort wrapper + serial.Serial; returns port-compat object
+      target_model.py        High-level protocol calls with safety enforcement
+      polling.py             Background thread → AppState
+      logging_model.py       PacketLog + EventLog
     protocol/
-      framing.py             Frame encode/decode: SOF, PKT_ID, FLAGS, SEQ, LEN, CRC-16
-      crc.py                 CRC-16/CCITT-FALSE implementation
-      client.py              Request/response send with timeout and retry
-      packet_defs.py         Packet ID constants (generated from protocol/packet_ids.yaml)
-    pages/
-      connection_page.py
-      dashboard_page.py
-      cells_page.py
-      temperatures_page.py
-      faults_page.py
-      config_page.py
-      diagnostics_page.py
-      firmware_flash_page.py
-      logs_page.py
+      framing.py             Frame encode/decode
+      crc.py                 CRC-16/CCITT-FALSE
+      client.py              BmsProtocolClient — blocking request/response with retry
+      packet_defs.py         Packet ID constants
     config/
-      schema.py              Config struct serialize/deserialize (generated from config_schema.yaml)
-      validator.py           Client-side config validation (mirrors firmware validation logic)
-      editor_widget.py       Auto-generated config editor UI from schema
+      schema.py              BmsConfig struct serialise/deserialise
+      validator.py           Client-side validation (mirrors firmware)
     update/
-      package_parser.py      Firmware package header parse and validate
-      stlink_flasher.py      Subprocess wrapper for STM32_Programmer_CLI
-      bootloader_updater.py  BOOT_UPDATE_BEGIN → chunk loop → FINALIZE flow
+      package_parser.py      Firmware .pkg parse and validate
+      package_builder.py     Build .pkg from .bin
+      stlink.py              STM32_Programmer_CLI wrapper (dry-run + execute gate)
     fake_target/
-      fake_target.py         Simulated BMS device; implements full request/response protocol
-      scenarios/             YAML scenario files for fake_target state injection
-    utils/
-      log_manager.py         Persistent log with rotation and export
-      bit_grid_widget.py     75-bit visual grid widget (reused for masks, open-wire, cell/temp grid)
-  scripts/
-    gen_protocol_consts.py   Generate packet_defs.py from protocol/packet_ids.yaml
-    gen_config_schema.py     Generate schema.py from protocol/config_schema.yaml
+      fake_target.py         Full BMS simulator: in-process or TCP server; 10 modes
+    cli/
+      bmsctl.py              Thin CLI wrapper
+    gui/
+      main.py                PyQt6 main window + PollingLoop integration
+      pages/                 One file per tab
+    connection/
+      device_state.py        DeviceMode, CapabilitiesState, DeviceState
   tests/
-    test_framing.py          CRC, encode/decode, error injection
-    test_config_validator.py Client-side validation mirrors firmware validation
-    test_fake_target.py      Full integration flow against fake_target
-    test_package_parser.py   Package header parse and validation
-  requirements.txt
-  setup.py / pyproject.toml
-  .github/workflows/ci.yml
+    test_framing.py
+    test_crc.py
+    test_config_validator.py
+    test_fake_target.py
+    test_package_parser.py
+    test_diagnostics_and_modes.py
+    test_backend.py          Core backend against FakeTargetInProcess
+    test_cli.py              CLI commands via TCP loopback
+    test_gui_smoke.py        GUI import/construct (skipped if PyQt6 absent)
 ```
+
+## CLI
+
+```bash
+# Start fake target
+python -m tool.src.cli.bmsctl fake-target run --mode healthy
+python -m tool.src.cli.bmsctl fake-target self-test
+
+# Runtime
+python -m tool.src.cli.bmsctl connect
+python -m tool.src.cli.bmsctl values [--json]
+python -m tool.src.cli.bmsctl cells [-v] [--json]
+python -m tool.src.cli.bmsctl temps [-v]
+python -m tool.src.cli.bmsctl faults [--json]
+python -m tool.src.cli.bmsctl diagnostics
+
+# Config
+python -m tool.src.cli.bmsctl config export-default --out default.bin
+python -m tool.src.cli.bmsctl config validate default.bin
+python -m tool.src.cli.bmsctl config read --out read.bin
+python -m tool.src.cli.bmsctl config apply-ram default.bin
+python -m tool.src.cli.bmsctl config diff a.bin b.bin
+
+# Package
+python -m tool.src.cli.bmsctl package build fw.bin fw.pkg --version 0.1.0
+python -m tool.src.cli.bmsctl package inspect fw.pkg [--json]
+python -m tool.src.cli.bmsctl package validate fw.pkg
+
+# ST-Link (dry-run only — does not flash hardware)
+python -m tool.src.cli.bmsctl stlink dry-run-app fw.pkg
+```
+
+## GUI
+
+```bash
+pip install PyQt6
+python -m tool.src.gui.main --fake --mode healthy   # auto-connect to fake target
+python -m tool.src.gui.main                         # connect via UI
+```
+
+Tabs: Connection | Dashboard | Cells | Temperatures | Faults | Config | Firmware Flash | Logs
+
+Safety enforced in GUI:
+- Runtime tabs disabled until `BMS_APP` mode confirmed
+- Config/update buttons gated on hw_profile match
+- Flash execute requires explicit safety checkbox
+- No output-force or balancing-force buttons anywhere
+
+## Fake Target Modes
+
+| Mode | Description |
+|------|-------------|
+| `healthy` | Nominal 3700 mV cells, 25°C temps, no faults |
+| `safe_invalid` | Zero cells, all temps INVALID, no faults |
+| `cell_uv` | cell[0]=2400 mV, FAULT_CELL_UV active |
+| `cell_ov` | cell[0]=4300 mV, FAULT_CELL_OV active |
+| `temp_invalid` | All temps INVALID, FAULT_TEMP_READ_INVALID active |
+| `vpack_invalid` | FAULT_VPACK_INVALID active |
+| `isospi_fault` | FAULT_ISOSPI_CELL active |
+| `config_error` | FAULT_CONFIG_INVALID active |
+| `precharge_fault` | FAULT_PRECHARGE_TIMEOUT active |
+| `bootloader` | capabilities returns FIRMWARE_TYPE_BOOTLOADER |
+
+## Tests
+
+```bash
+python3 -m pytest tool/tests/ -q
+# 144+ passed, 1 skipped (GUI test skipped without PyQt6)
+```
+
+## Safety / Refusal Rules
+
+| Condition | Effect |
+|-----------|--------|
+| No capabilities handshake | all ops refused |
+| hw_profile_id mismatch | UNSUPPORTED mode; config/update refused |
+| bootloader mode | runtime ops refused |
+| UNSUPPORTED mode | all config and update ops refused |
+| ST-Link execute | requires `confirm=True` / explicit GUI checkbox |
+| Package > 188 KB | PackageBuildError |
+| Package empty | PackageBuildError |
 
 ---
 

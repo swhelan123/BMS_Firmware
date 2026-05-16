@@ -5,7 +5,6 @@ All methods raise ProtocolError subclasses on failure.
 import struct
 import time
 from typing import Optional
-import serial
 
 from .framing import encode_frame, FrameDecoder, FrameError
 from .packet_defs import (
