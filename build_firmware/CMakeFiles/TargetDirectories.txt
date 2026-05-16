@@ -1,3 +1,0 @@
-/Users/keelan/Desktop/BMS_Firmware/build_firmware/CMakeFiles/bms_firmware.elf.dir
-/Users/keelan/Desktop/BMS_Firmware/build_firmware/CMakeFiles/edit_cache.dir
-/Users/keelan/Desktop/BMS_Firmware/build_firmware/CMakeFiles/rebuild_cache.dir
