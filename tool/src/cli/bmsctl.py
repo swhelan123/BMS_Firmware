@@ -27,6 +27,7 @@ from tool.src.config.validator import validate_config
 from tool.src.update.package_builder import build_package, PackageBuildError
 from tool.src.update.package_parser import parse_and_validate_package, PackageValidationError
 from tool.src.update.stlink import dry_run_app, detect_programmer
+from tool.src.update.bootloader_updater import BootloaderUpdater, UpdateError
 
 # ── Fault name table (matches protocol/fault_bits.yaml) ──────────────────────
 
@@ -395,6 +396,169 @@ def cmd_config_diff(args) -> int:
     return 0
 
 
+def cmd_config_export_json(args) -> int:
+    try:
+        if getattr(args, 'file', None):
+            blob = Path(args.file).read_bytes()
+            cfg  = BmsConfig.unpack(blob)
+        else:
+            cfg = BmsConfig()
+    except FileNotFoundError:
+        print(f"error: file not found: {args.file}", file=sys.stderr)
+        return 1
+    data = {
+        k: (v.hex() if isinstance(v, bytes) else v)
+        for k, v in cfg.__dict__.items()
+        if not k.startswith('reserved')
+    }
+    if getattr(args, 'out', None):
+        Path(args.out).write_text(json.dumps(data, indent=2))
+        print(f"Written to {args.out}")
+    else:
+        print(json.dumps(data, indent=2))
+    return 0
+
+
+def cmd_config_import_json(args) -> int:
+    try:
+        text = Path(args.file).read_text()
+    except FileNotFoundError:
+        print(f"error: file not found: {args.file}", file=sys.stderr)
+        return 1
+    data = json.loads(text)
+    cfg  = BmsConfig()
+    for k, v in data.items():
+        if hasattr(cfg, k):
+            field_val = getattr(cfg, k)
+            if isinstance(field_val, bytes):
+                setattr(cfg, k, bytes.fromhex(v))
+            else:
+                setattr(cfg, k, type(field_val)(v))
+    ok, err_off, msg = validate_config(cfg)
+    if not ok:
+        print(f"error: imported config invalid at offset 0x{err_off:04X}: {msg}",
+              file=sys.stderr)
+        return 1
+    blob = cfg.pack()
+    if getattr(args, 'out', None):
+        Path(args.out).write_bytes(blob)
+        print(f"Written {len(blob)} bytes to {args.out}")
+    else:
+        sys.stdout.buffer.write(blob)
+    return 0
+
+
+def cmd_config_export_yaml(args) -> int:
+    try:
+        import yaml
+    except ImportError:
+        print("error: PyYAML not installed — run: pip install PyYAML", file=sys.stderr)
+        return 1
+    try:
+        if getattr(args, 'file', None):
+            blob = Path(args.file).read_bytes()
+            cfg  = BmsConfig.unpack(blob)
+        else:
+            cfg = BmsConfig()
+    except FileNotFoundError:
+        print(f"error: file not found: {args.file}", file=sys.stderr)
+        return 1
+    data = {
+        k: (v.hex() if isinstance(v, bytes) else v)
+        for k, v in cfg.__dict__.items()
+        if not k.startswith('reserved')
+    }
+    if getattr(args, 'out', None):
+        Path(args.out).write_text(yaml.dump(data, default_flow_style=False))
+        print(f"Written to {args.out}")
+    else:
+        print(yaml.dump(data, default_flow_style=False))
+    return 0
+
+
+def cmd_update_simulate(args) -> int:
+    """Full update simulation: connect, enter bootloader, run update via protocol."""
+    mgr, model = _connect(args)
+    try:
+        # Validate package before touching the target
+        hdr, _ = parse_and_validate_package(args.file)
+        ok, msg = model.validate_package_against_target(hdr)
+        if not ok:
+            print(f"error: package incompatible — {msg}", file=sys.stderr)
+            return 1
+
+        print("  entering bootloader …")
+        model.enter_bootloader()
+
+        # Re-handshake on the same connection (fake target transitions in place)
+        device = model.capabilities_handshake()
+        if device.mode.name != 'BOOTLOADER':
+            print(f"error: expected BOOTLOADER mode, got {device.mode.name}",
+                  file=sys.stderr)
+            return 1
+        print("  bootloader active")
+
+        updater = BootloaderUpdater(model._client)
+
+        def _progress(done: int, total: int) -> None:
+            pct = int(done * 100 / total) if total else 0
+            bar = '#' * (pct // 5)
+            print(f"\r  [{bar:<20}] {pct:3d}%  chunk {done}/{total}", end='', flush=True)
+
+        result = updater.update(args.file, on_progress=_progress)
+        print()  # newline after progress bar
+        print(f"  update complete — {result.chunks_sent} chunks, "
+              f"CRC 0x{result.computed_crc:08X}")
+        return 0
+
+    except (UpdateError, ProtocolError, TargetRefusedError) as e:
+        print(f"\nerror: {e}", file=sys.stderr)
+        return 1
+    except PackageValidationError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    finally:
+        mgr.disconnect()
+
+
+def cmd_update_validate(args) -> int:
+    """Validate a .pkg against a connected target's capabilities."""
+    mgr, model = _connect(args)
+    try:
+        hdr, _ = parse_and_validate_package(args.file)
+        ok, msg = model.validate_package_against_target(hdr)
+        _out({'compatible': ok, 'message': msg}, getattr(args, 'json', False))
+        return 0 if ok else 1
+    except PackageValidationError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    finally:
+        mgr.disconnect()
+
+
+def cmd_update_dry_run(args) -> int:
+    """Show what the bootloader update sequence would do without connecting."""
+    try:
+        hdr, payload = parse_and_validate_package(args.file)
+    except PackageValidationError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    except FileNotFoundError:
+        print(f"error: not found: {args.file}", file=sys.stderr)
+        return 1
+    chunk_size   = 512
+    total_chunks = (hdr.app_size + chunk_size - 1) // chunk_size
+    print("  DRY-RUN: bootloader update sequence")
+    print(f"    package:      {args.file}")
+    print(f"    fw_version:   {'.'.join(str(x) for x in hdr.fw_version)}")
+    print(f"    app_size:     {hdr.app_size} bytes")
+    print(f"    app_crc32:    0x{hdr.app_crc32:08X}")
+    print(f"    chunk_size:   {chunk_size}")
+    print(f"    total_chunks: {total_chunks}")
+    print(f"  steps: ENTER_BOOTLOADER → BEGIN → {total_chunks}×CHUNK → FINALIZE")
+    return 0
+
+
 def cmd_package_build(args) -> int:
     try:
         fw = Path(args.input).read_bytes()
@@ -526,6 +690,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument('a')
     p.add_argument('b')
 
+    p = cfg_sub.add_parser('export-json', help='Export config as JSON')
+    p.add_argument('file', nargs='?', default=None, metavar='FILE',
+                   help='Config .bin (default: export defaults)')
+    p.add_argument('--out', default=None, metavar='FILE')
+
+    p = cfg_sub.add_parser('import-json', help='Import JSON config to .bin')
+    p.add_argument('file', help='JSON config file')
+    p.add_argument('--out', default=None, metavar='FILE', help='Output .bin (default: stdout)')
+
+    p = cfg_sub.add_parser('export-yaml', help='Export config as YAML')
+    p.add_argument('file', nargs='?', default=None, metavar='FILE',
+                   help='Config .bin (default: export defaults)')
+    p.add_argument('--out', default=None, metavar='FILE')
+
     # ── package ──────────────────────────────────────────────────────────────
     pkg     = sub.add_parser('package', help='Firmware package operations')
     pkg_sub = pkg.add_subparsers(dest='pkg_command')
@@ -542,6 +720,21 @@ def build_parser() -> argparse.ArgumentParser:
     p = pkg_sub.add_parser('validate', help='Validate .pkg file fully')
     p.add_argument('file')
     p.add_argument('--json', action='store_true')
+
+    # ── update ───────────────────────────────────────────────────────────────
+    upd     = sub.add_parser('update', help='Bootloader firmware update operations')
+    upd_sub = upd.add_subparsers(dest='upd_command')
+
+    p = upd_sub.add_parser('simulate', help='Simulate update against fake target or hardware')
+    _add_connect_args(p)
+    p.add_argument('file', help='.pkg firmware package')
+
+    p = upd_sub.add_parser('validate', help='Check package compatibility with connected target')
+    _add_connect_args(p)
+    p.add_argument('file', help='.pkg firmware package')
+
+    p = upd_sub.add_parser('dry-run', help='Show update plan without connecting')
+    p.add_argument('file', help='.pkg firmware package')
 
     # ── stlink ───────────────────────────────────────────────────────────────
     sl     = sub.add_parser('stlink', help='ST-Link flash operations')
@@ -584,6 +777,9 @@ def main(argv=None) -> int:
         if cc == 'read':           return cmd_config_read(args)
         if cc == 'apply-ram':      return cmd_config_apply_ram(args)
         if cc == 'diff':           return cmd_config_diff(args)
+        if cc == 'export-json':    return cmd_config_export_json(args)
+        if cc == 'import-json':    return cmd_config_import_json(args)
+        if cc == 'export-yaml':    return cmd_config_export_yaml(args)
 
     elif args.command == 'package':
         pc = getattr(args, 'pkg_command', None)
@@ -592,6 +788,14 @@ def main(argv=None) -> int:
         if pc == 'build':    return cmd_package_build(args)
         if pc == 'inspect':  return cmd_package_inspect(args)
         if pc == 'validate': return cmd_package_validate(args)
+
+    elif args.command == 'update':
+        uc = getattr(args, 'upd_command', None)
+        if not uc:
+            return 1
+        if uc == 'simulate': return cmd_update_simulate(args)
+        if uc == 'validate': return cmd_update_validate(args)
+        if uc == 'dry-run':  return cmd_update_dry_run(args)
 
     elif args.command == 'stlink':
         sc = getattr(args, 'sl_command', None)

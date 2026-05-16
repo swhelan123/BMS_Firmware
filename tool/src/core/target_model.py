@@ -196,6 +196,11 @@ class TargetModel:
         self._require_app_mode()
         return self._client.clear_latched_faults(mask)
 
+    def enter_bootloader(self) -> None:
+        """Send ENTER_BOOTLOADER. Caller must call capabilities_handshake() again after."""
+        self._require_app_mode()
+        self._client.enter_bootloader()
+
     # ── Diagnostics ───────────────────────────────────────────────────────────
 
     def run_openwire(self) -> dict:

@@ -123,20 +123,25 @@ class TestGetBootInfo:
         assert reset_cause == 0x01
 
 
-# ── Bootloader update packets return NOT_SUPPORTED ────────────────────────────
+# ── Bootloader update packets blocked outside bootloader mode ─────────────────
 
-class TestBootloaderUpdateNotSupported:
+class TestBootloaderUpdateBlockedInAppMode:
     @pytest.mark.parametrize("pkt_id", [
         PKT_BOOT_UPDATE_BEGIN,
         PKT_BOOT_UPDATE_CHUNK,
         PKT_BOOT_UPDATE_FINALIZE,
-        PKT_BOOT_UPDATE_ABORT,
     ])
-    def test_returns_not_supported(self, pkt_id):
-        t = FakeTarget()
+    def test_returns_error_in_bms_app_mode(self, pkt_id):
+        """BEGIN / CHUNK / FINALIZE must error when not in BOOTLOADER mode."""
+        t = FakeTarget()   # defaults to healthy / BMS_APP
         r = send_recv(t, pkt_id)
         assert r['is_error']
-        assert r['payload'][0] == 0x0A  # PROTO_ERR_NOT_SUPPORTED
+
+    def test_abort_always_succeeds(self):
+        """ABORT is idempotent and succeeds in any mode (safe to call anytime)."""
+        t = FakeTarget()
+        r = send_recv(t, PKT_BOOT_UPDATE_ABORT)
+        assert not r['is_error']
 
 
 # ── Simulation modes ──────────────────────────────────────────────────────────

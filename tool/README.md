@@ -34,6 +34,7 @@ tool/
     update/
       package_parser.py      Firmware .pkg parse and validate
       package_builder.py     Build .pkg from .bin
+      bootloader_updater.py  BootloaderUpdater: BEGIN→CHUNK*→FINALIZE over protocol
       stlink.py              STM32_Programmer_CLI wrapper (dry-run + execute gate)
     fake_target/
       fake_target.py         Full BMS simulator: in-process or TCP server; 10 modes
@@ -53,6 +54,7 @@ tool/
     test_diagnostics_and_modes.py
     test_backend.py          Core backend against FakeTargetInProcess
     test_cli.py              CLI commands via TCP loopback
+    test_bootloader_update.py Bootloader update protocol + BootloaderUpdater + CLI
     test_gui_smoke.py        GUI import/construct (skipped if PyQt6 absent)
 ```
 
@@ -77,11 +79,19 @@ python -m tool.src.cli.bmsctl config validate default.bin
 python -m tool.src.cli.bmsctl config read --out read.bin
 python -m tool.src.cli.bmsctl config apply-ram default.bin
 python -m tool.src.cli.bmsctl config diff a.bin b.bin
+python -m tool.src.cli.bmsctl config export-json [file.bin] [--out file.json]
+python -m tool.src.cli.bmsctl config import-json file.json [--out file.bin]
+python -m tool.src.cli.bmsctl config export-yaml [file.bin] [--out file.yaml]
 
 # Package
 python -m tool.src.cli.bmsctl package build fw.bin fw.pkg --version 0.1.0
 python -m tool.src.cli.bmsctl package inspect fw.pkg [--json]
 python -m tool.src.cli.bmsctl package validate fw.pkg
+
+# Bootloader update (simulation — same protocol used by real hardware)
+python -m tool.src.cli.bmsctl update dry-run fw.pkg
+python -m tool.src.cli.bmsctl update validate fw.pkg
+python -m tool.src.cli.bmsctl update simulate fw.pkg
 
 # ST-Link (dry-run only — does not flash hardware)
 python -m tool.src.cli.bmsctl stlink dry-run-app fw.pkg
@@ -122,7 +132,20 @@ Safety enforced in GUI:
 
 ```bash
 python3 -m pytest tool/tests/ -q
-# 144+ passed, 1 skipped (GUI test skipped without PyQt6)
+# 174+ passed, 1 skipped (GUI test skipped without PyQt6)
+```
+
+## Local Development
+
+```bash
+# One-command validation (no hardware needed)
+./scripts/validate_all.sh
+
+# Full stack demo (fake target + CLI walkthrough)
+./scripts/demo_local.sh
+
+# Full stack demo with GUI
+./scripts/demo_local.sh --gui
 ```
 
 ## Safety / Refusal Rules
@@ -131,11 +154,13 @@ python3 -m pytest tool/tests/ -q
 |-----------|--------|
 | No capabilities handshake | all ops refused |
 | hw_profile_id mismatch | UNSUPPORTED mode; config/update refused |
-| bootloader mode | runtime ops refused |
+| bootloader mode | runtime ops refused (values/cells/temps/faults) |
+| BMS_APP mode | BOOT_UPDATE_* ops refused (0x0E error) |
 | UNSUPPORTED mode | all config and update ops refused |
 | ST-Link execute | requires `confirm=True` / explicit GUI checkbox |
 | Package > 188 KB | PackageBuildError |
 | Package empty | PackageBuildError |
+| Wrong hw_profile in package | BEGIN rejected; validate_package_against_target fails |
 
 ---
 

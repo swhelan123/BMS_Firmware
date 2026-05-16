@@ -116,6 +116,12 @@ class FakeTarget:
         self._open_wire_detected = [False] * TOTAL_CELL_COUNT
         self._reset_cause     = 0x01  # POR on fresh boot
         self._firmware_type   = FIRMWARE_TYPE_BMS_APP
+        # Bootloader update state
+        self._update_state          = None    # None | 'accepting_chunks' | 'complete'
+        self._update_staged         = bytearray()
+        self._update_chunk_size     = 512
+        self._update_total_chunks   = 0
+        self._update_next_chunk_idx = 0
         _apply_simulation_mode(self, mode)
 
     # ── TCP server ────────────────────────────────────────────────────────────
@@ -187,10 +193,10 @@ class FakeTarget:
             PKT_RUN_OPENWIRE:           lambda: self._h_run_openwire(seq),
             PKT_GET_BOOT_INFO:          lambda: self._h_boot_info(seq),
             PKT_ENTER_BOOTLOADER:       lambda: self._h_enter_bootloader(seq, payload),
-            PKT_BOOT_UPDATE_BEGIN:      lambda: self._error(pkt_id, seq, 0x0A),
-            PKT_BOOT_UPDATE_CHUNK:      lambda: self._error(pkt_id, seq, 0x0A),
-            PKT_BOOT_UPDATE_FINALIZE:   lambda: self._error(pkt_id, seq, 0x0A),
-            PKT_BOOT_UPDATE_ABORT:      lambda: self._error(pkt_id, seq, 0x0A),
+            PKT_BOOT_UPDATE_BEGIN:      lambda: self._h_boot_update_begin(seq, payload),
+            PKT_BOOT_UPDATE_CHUNK:      lambda: self._h_boot_update_chunk(seq, payload),
+            PKT_BOOT_UPDATE_FINALIZE:   lambda: self._h_boot_update_finalize(seq),
+            PKT_BOOT_UPDATE_ABORT:      lambda: self._h_boot_update_abort(seq),
         }
         handler = dispatch.get(pkt_id)
         if handler is None:
@@ -322,7 +328,62 @@ class FakeTarget:
         magic = struct.unpack_from('<I', payload)[0]
         if magic != BL_ENTRY_FLAG:
             return self._error(PKT_ENTER_BOOTLOADER, seq, 0x0B)
+        self._firmware_type = FIRMWARE_TYPE_BOOTLOADER
+        self._update_state = None
+        self._update_staged = bytearray()
+        self._update_next_chunk_idx = 0
         return self._respond(PKT_ENTER_BOOTLOADER, b'', seq)
+
+    def _h_boot_update_begin(self, seq: int, payload: bytes) -> bytes:
+        if self._firmware_type != FIRMWARE_TYPE_BOOTLOADER:
+            return self._error(PKT_BOOT_UPDATE_BEGIN, seq, 0x0E)  # not in bootloader
+        if len(payload) < 64:
+            return self._error(PKT_BOOT_UPDATE_BEGIN, seq, 0x02)
+        from ..update.package_parser import parse_header, validate_header
+        try:
+            hdr = parse_header(payload[:64])
+            validate_header(hdr, raw_header=bytes(payload[:64]))
+        except Exception:
+            resp = struct.pack('<BBII', 1, 0x01, 0, 0)  # rejected: bad header
+            return self._respond(PKT_BOOT_UPDATE_BEGIN, resp, seq)
+        total_chunks = (hdr.app_size + self._update_chunk_size - 1) // self._update_chunk_size
+        self._update_staged = bytearray()
+        self._update_total_chunks = total_chunks
+        self._update_next_chunk_idx = 0
+        self._update_state = 'accepting_chunks'
+        resp = struct.pack('<BBII', 0, 0, self._update_chunk_size, total_chunks)
+        return self._respond(PKT_BOOT_UPDATE_BEGIN, resp, seq)
+
+    def _h_boot_update_chunk(self, seq: int, payload: bytes) -> bytes:
+        if self._firmware_type != FIRMWARE_TYPE_BOOTLOADER:
+            return self._error(PKT_BOOT_UPDATE_CHUNK, seq, 0x0E)
+        if self._update_state != 'accepting_chunks':
+            return self._error(PKT_BOOT_UPDATE_CHUNK, seq, 0x0C)  # not started
+        if len(payload) < 8:
+            return self._error(PKT_BOOT_UPDATE_CHUNK, seq, 0x02)
+        index, data_len = struct.unpack_from('<II', payload)
+        data = payload[8:8 + data_len]
+        if index != self._update_next_chunk_idx:
+            return self._error(PKT_BOOT_UPDATE_CHUNK, seq, 0x0D)  # wrong index
+        self._update_staged.extend(data)
+        self._update_next_chunk_idx += 1
+        return self._respond(PKT_BOOT_UPDATE_CHUNK, bytes([0]), seq)
+
+    def _h_boot_update_finalize(self, seq: int) -> bytes:
+        if self._firmware_type != FIRMWARE_TYPE_BOOTLOADER:
+            return self._error(PKT_BOOT_UPDATE_FINALIZE, seq, 0x0E)
+        if self._update_state != 'accepting_chunks':
+            return self._error(PKT_BOOT_UPDATE_FINALIZE, seq, 0x0C)
+        from ..protocol.crc import crc32_iso_hdlc
+        computed = crc32_iso_hdlc(bytes(self._update_staged))
+        self._update_state = 'complete'
+        return self._respond(PKT_BOOT_UPDATE_FINALIZE, struct.pack('<BI', 0, computed), seq)
+
+    def _h_boot_update_abort(self, seq: int) -> bytes:
+        self._update_state = None
+        self._update_staged = bytearray()
+        self._update_next_chunk_idx = 0
+        return self._respond(PKT_BOOT_UPDATE_ABORT, b'', seq)
 
     # ── State injection helpers ───────────────────────────────────────────────
 
