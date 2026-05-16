@@ -76,8 +76,9 @@ BmsResult ltc6812_cell_chain_set_balance(BmsChain chain, uint8_t num_ics,
 BmsResult ltc6812_cell_chain_clear_balance(BmsChain chain, uint8_t num_ics);
 
 /* ── Open-wire detection (CELL chain) ─────────────────────────────────────── */
-/* Perform open-wire check using ADOW command; result stored internally.
- * Returns BMS_ERR_NOT_SUPPORTED until full implementation. */
+/* ADOW pull-down pass then pull-up pass; cells where V_PUP - V_PDN > 400 mV
+ * are flagged in open_wire_detected[]. chain must be BMS_CHAIN_CELL.
+ * Returns BMS_ERR_PEC on any PEC failure during either pass. */
 BmsResult ltc6812_run_open_wire(BmsChain chain, uint8_t num_ics,
                                  bool open_wire_detected[TOTAL_CELL_COUNT]);
 

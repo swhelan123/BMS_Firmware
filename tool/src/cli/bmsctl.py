@@ -802,6 +802,34 @@ def cmd_measure_power(args) -> int:
         mgr.disconnect()
 
 
+def cmd_openwire_run(args) -> int:
+    mgr, model = _connect(args)
+    try:
+        r      = model.run_openwire()
+        status = r['status']
+        mask   = r['open_wire_mask']
+        detected = [bool(mask[i // 8] & (1 << (i % 8))) for i in range(75)]
+        n_det    = sum(detected)
+        if args.json:
+            _out({
+                'status':         status,
+                'open_wire_mask': mask.hex(),
+                'detected_count': n_det,
+                'detected_cells': [i for i, d in enumerate(detected) if d],
+            }, True)
+        else:
+            print(f"  status:    {status}  ({'OK' if status == 0 else 'FAIL'})")
+            print(f"  detected:  {n_det} open wire(s)")
+            if n_det:
+                print(f"  cells:     {[i for i, d in enumerate(detected) if d]}")
+        return 0 if (status == 0 and n_det == 0) else 1
+    except (ProtocolError, TargetRefusedError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    finally:
+        mgr.disconnect()
+
+
 def cmd_balance_disable_all(args) -> int:
     mgr, model = _connect(args)
     try:
@@ -975,6 +1003,13 @@ def build_parser() -> argparse.ArgumentParser:
     p = meas_sub.add_parser('power', help='Read ISL28022 (Vbat/I) and Vpack ADC (PA1)')
     _add_connect_args(p)
 
+    # ── openwire ──────────────────────────────────────────────────────────────
+    ow     = sub.add_parser('openwire', help='Open-wire diagnostics')
+    ow_sub = ow.add_subparsers(dest='ow_command')
+
+    p = ow_sub.add_parser('run', help='Run ADOW detection and report open wires')
+    _add_connect_args(p)
+
     # ── balance ───────────────────────────────────────────────────────────────
     balance     = sub.add_parser('balance', help='Balance control')
     balance_sub = balance.add_subparsers(dest='balance_command')
@@ -1071,6 +1106,12 @@ def main(argv=None) -> int:
         if mc == 'cells': return cmd_measure_cells(args)
         if mc == 'temps': return cmd_measure_temps(args)
         if mc == 'power': return cmd_measure_power(args)
+
+    elif args.command == 'openwire':
+        oc = getattr(args, 'ow_command', None)
+        if not oc:
+            return 1
+        if oc == 'run': return cmd_openwire_run(args)
 
     elif args.command == 'balance':
         bc = getattr(args, 'balance_command', None)

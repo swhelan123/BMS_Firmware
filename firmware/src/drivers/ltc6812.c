@@ -184,7 +184,32 @@ BmsResult ltc6812_cell_chain_set_balance(BmsChain chain, uint8_t num_ics,
         /* CFGB[0] bits[2:0] = DCC15:13; preserve MUTE/DTMEN bits */
         g[0] = (uint8_t)((g[0] & 0xF8u) | dcc_hi);
     }
-    return isospi_write_all(chain, LTC_CMD_WRCFGB, cfgb_data, num_ics);
+    r = isospi_write_all(chain, LTC_CMD_WRCFGB, cfgb_data, num_ics);
+    if (r != BMS_OK) { return r; }
+
+    /* Readback verification: re-read CFGA and CFGB and check DCC bits match. */
+    uint8_t rb_cfga[ISOSPI_MAX_ICS * LTC6812_REG_GROUP_BYTES];
+    uint8_t rb_cfgb[ISOSPI_MAX_ICS * LTC6812_REG_GROUP_BYTES];
+    bool rb_pec[ISOSPI_MAX_ICS];
+
+    r = isospi_read_all(chain, LTC_CMD_RDCFGA, rb_cfga, num_ics, rb_pec);
+    if (r != BMS_OK) { return r; }
+    for (uint8_t ic = 0; ic < num_ics; ic++) {
+        if (!rb_pec[ic]) { return BMS_ERR_PEC; }
+    }
+
+    r = isospi_read_all(chain, LTC_CMD_RDCFGB, rb_cfgb, num_ics, rb_pec);
+    if (r != BMS_OK) { return r; }
+    for (uint8_t ic = 0; ic < num_ics; ic++) {
+        if (!rb_pec[ic]) { return BMS_ERR_PEC; }
+        const uint8_t *ga = &rb_cfga[ic * LTC6812_REG_GROUP_BYTES];
+        const uint8_t *gb = &rb_cfgb[ic * LTC6812_REG_GROUP_BYTES];
+        uint16_t dcc = dcc_mask[ic] & 0x7FFFu;
+        if (ga[4] != (uint8_t)(dcc & 0xFFu))           { return BMS_ERR_SPI; }
+        if ((ga[5] & 0x0Fu) != (uint8_t)((dcc >> 8u) & 0x0Fu)) { return BMS_ERR_SPI; }
+        if ((gb[0] & 0x07u) != (uint8_t)((dcc >> 12u) & 0x07u)) { return BMS_ERR_SPI; }
+    }
+    return BMS_OK;
 }
 
 BmsResult ltc6812_cell_chain_clear_balance(BmsChain chain, uint8_t num_ics) {

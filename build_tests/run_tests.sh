@@ -81,6 +81,7 @@ run_test test_bootloader_validate \
     bootloader/src/bl_jump.c
 run_test test_faults           tests/unit/test_faults.c
 run_test test_balance          tests/unit/test_balance.c
+run_test test_openwire         tests/unit/test_openwire.c
 
 echo "==================================="
 echo "C Unit Tests: $PASS passed, $FAIL failed"

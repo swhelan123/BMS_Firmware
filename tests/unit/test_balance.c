@@ -19,7 +19,9 @@
 #define IC_VALID_PEC_H  0xC2u
 #define IC_VALID_PEC_L  0x12u
 #define BYTES_PER_IC    8u
-#define MOCK_RX_SIZE    (CELL_IC_COUNT * BYTES_PER_IC * 2u)  /* RDCFGA + RDCFGB */
+/* ltc6812_cell_chain_set_balance does 4 reads: RDCFGA + RDCFGB (write phase)
+ * + RDCFGA + RDCFGB (readback verification). Zero dcc_mask passes readback. */
+#define MOCK_RX_SIZE    (CELL_IC_COUNT * BYTES_PER_IC * 4u)  /* 4 reads × 5 ICs × 8 bytes */
 
 static uint8_t s_valid_rx[MOCK_RX_SIZE];
 
@@ -27,9 +29,10 @@ static BmsConfig    s_cfg;
 static CellSnapshot s_cells;
 
 static void load_valid_spi_rx(void) {
-    /* Preload RDCFGA response (40 bytes) + RDCFGB response (40 bytes) */
+    /* Preload 4 rounds of valid zero-data: RDCFGA + RDCFGB (write phase)
+     * + RDCFGA + RDCFGB (readback). Readback of zeros matches dcc_mask=0. */
     memset(s_valid_rx, 0, sizeof(s_valid_rx));
-    for (uint8_t ic = 0; ic < CELL_IC_COUNT * 2u; ic++) {
+    for (uint8_t ic = 0; ic < CELL_IC_COUNT * 4u; ic++) {
         /* data bytes 0-5: 0x00 */
         s_valid_rx[ic * BYTES_PER_IC + 6] = IC_VALID_PEC_H;
         s_valid_rx[ic * BYTES_PER_IC + 7] = IC_VALID_PEC_L;
@@ -116,6 +119,108 @@ void test_disable_all_sends_wrcfga(void) {
     TEST_ASSERT_TRUE(found_wrcfga);
 }
 
+/* ── TEMP chain guard ─────────────────────────────────────────────────────── */
+
+void test_balance_temp_chain_returns_forbidden(void) {
+    uint16_t dcc[CELL_IC_COUNT] = {0};
+    BmsResult r = ltc6812_cell_chain_set_balance(BMS_CHAIN_TEMP, CELL_IC_COUNT, dcc);
+    TEST_ASSERT_EQUAL(BMS_ERR_FORBIDDEN, r);
+    /* No SPI should be sent for the forbidden chain */
+    TEST_ASSERT_EQUAL_UINT16(0u, mock_spi_get_last_tx_len());
+}
+
+/* ── Measurement-error guard ──────────────────────────────────────────────── */
+
+void test_balance_meas_error_disables_balance(void) {
+    s_cells.overall = MEAS_ERROR;
+    load_valid_spi_rx();
+    bms_balance_tick(&s_cells, 0u, BMS_STATE_STANDBY, &s_cfg);
+    /* disable_all must have run — some SPI bytes transmitted */
+    TEST_ASSERT_TRUE(mock_spi_get_last_tx_len() > 0u);
+}
+
+/* ── Open-wire fault guard ────────────────────────────────────────────────── */
+
+void test_balance_openwire_fault_disables_balance(void) {
+    uint64_t faults = FAULT_MASK(FAULT_BIT_CELL_OPENWIRE);
+    load_valid_spi_rx();
+    bms_balance_tick(&s_cells, faults, BMS_STATE_DISCHARGE, &s_cfg);
+    TEST_ASSERT_TRUE(mock_spi_get_last_tx_len() > 0u);
+}
+
+/* ── DCC bit placement ────────────────────────────────────────────────────── */
+/* TX layout for ltc6812_cell_chain_set_balance(CELL, 5, dcc):
+ *   [0]:     wakeup for RDCFGA read
+ *   [1..4]:  RDCFGA cmd frame
+ *   [5]:     wakeup for WRCFGA
+ *   [6..9]:  WRCFGA cmd frame
+ *   [10..17]: IC 0 CFGA data (6 bytes) + PEC (2 bytes)
+ *     → CFGA[4] at TX[14], CFGA[5] at TX[15]
+ *   [18..49]: IC 1-4 CFGA data
+ *   [50]:    wakeup for RDCFGB read
+ *   [51..54]: RDCFGB cmd frame
+ *   [55]:    wakeup for WRCFGB
+ *   [56..59]: WRCFGB cmd frame
+ *   [60..67]: IC 0 CFGB data (6 bytes) + PEC
+ *     → CFGB[0] at TX[60]
+ */
+#define TX_IC0_CFGA4  (14u)
+#define TX_IC0_CFGA5  (15u)
+#define TX_IC0_CFGB0  (60u)
+
+static void run_balance_direct(uint16_t ic0_dcc) {
+    uint16_t dcc[CELL_IC_COUNT] = {0};
+    dcc[0] = ic0_dcc;
+    load_valid_spi_rx();
+    /* Return value may be BMS_ERR_SPI (readback mismatch with zero mock data)
+     * when dcc != 0; we only inspect TX bytes here. */
+    ltc6812_cell_chain_set_balance(BMS_CHAIN_CELL, CELL_IC_COUNT, dcc);
+}
+
+void test_balance_dcc_cell1_sets_cfga4_bit0(void) {
+    run_balance_direct(0x0001u);  /* cell 1 (1-based) = bit 0 */
+    TEST_ASSERT_EQUAL_HEX8(0x01u, mock_spi_get_last_tx()[TX_IC0_CFGA4]);
+}
+
+void test_balance_dcc_cell8_sets_cfga4_bit7(void) {
+    run_balance_direct(0x0080u);  /* cell 8 = bit 7 */
+    TEST_ASSERT_EQUAL_HEX8(0x80u, mock_spi_get_last_tx()[TX_IC0_CFGA4]);
+}
+
+void test_balance_dcc_cell9_sets_cfga5_bit0(void) {
+    run_balance_direct(0x0100u);  /* cell 9 = bit 8 → CFGA[5] bit 0 */
+    TEST_ASSERT_EQUAL_HEX8(0x01u, mock_spi_get_last_tx()[TX_IC0_CFGA5] & 0x0Fu);
+}
+
+void test_balance_dcc_cell12_sets_cfga5_bit3(void) {
+    run_balance_direct(0x0800u);  /* cell 12 = bit 11 → CFGA[5] bit 3 */
+    TEST_ASSERT_EQUAL_HEX8(0x08u, mock_spi_get_last_tx()[TX_IC0_CFGA5] & 0x0Fu);
+}
+
+void test_balance_dcc_cell13_sets_cfgb0_bit0(void) {
+    run_balance_direct(0x1000u);  /* cell 13 = bit 12 → CFGB[0] bit 0 */
+    TEST_ASSERT_EQUAL_HEX8(0x01u, mock_spi_get_last_tx()[TX_IC0_CFGB0] & 0x07u);
+}
+
+void test_balance_dcc_cell15_sets_cfgb0_bit2(void) {
+    run_balance_direct(0x4000u);  /* cell 15 = bit 14 → CFGB[0] bit 2 */
+    TEST_ASSERT_EQUAL_HEX8(0x04u, mock_spi_get_last_tx()[TX_IC0_CFGB0] & 0x07u);
+}
+
+/* ── Readback verification ────────────────────────────────────────────────── */
+
+void test_balance_readback_mismatch_returns_spi_error(void) {
+    /* Write with dcc[0]=0x0001 (cell 1); readback returns all zeros.
+     * Zero readback has ga[4]=0 but expected 0x01 → BMS_ERR_SPI. */
+    uint16_t dcc[CELL_IC_COUNT] = {0};
+    dcc[0] = 0x0001u;
+    load_valid_spi_rx();  /* returns zeros for all 4 reads — readback will mismatch */
+    BmsResult r = ltc6812_cell_chain_set_balance(BMS_CHAIN_CELL, CELL_IC_COUNT, dcc);
+    TEST_ASSERT_EQUAL(BMS_ERR_SPI, r);
+}
+
+/* ── Allowed balancing ────────────────────────────────────────────────────── */
+
 void test_balance_allowed_in_standby_one_high_cell(void) {
     s_cfg.cell_balance_target_mv     = 3600u;
     s_cfg.cell_balance_hysteresis_mv = 50u;
@@ -139,5 +244,22 @@ int main(void) {
     RUN_TEST(test_balance_no_eligible_cells_disables);
     RUN_TEST(test_disable_all_sends_wrcfga);
     RUN_TEST(test_balance_allowed_in_standby_one_high_cell);
+
+    /* New: chain guard, meas-error guard, open-wire guard */
+    RUN_TEST(test_balance_temp_chain_returns_forbidden);
+    RUN_TEST(test_balance_meas_error_disables_balance);
+    RUN_TEST(test_balance_openwire_fault_disables_balance);
+
+    /* New: DCC bit placement */
+    RUN_TEST(test_balance_dcc_cell1_sets_cfga4_bit0);
+    RUN_TEST(test_balance_dcc_cell8_sets_cfga4_bit7);
+    RUN_TEST(test_balance_dcc_cell9_sets_cfga5_bit0);
+    RUN_TEST(test_balance_dcc_cell12_sets_cfga5_bit3);
+    RUN_TEST(test_balance_dcc_cell13_sets_cfgb0_bit0);
+    RUN_TEST(test_balance_dcc_cell15_sets_cfgb0_bit2);
+
+    /* New: readback verification */
+    RUN_TEST(test_balance_readback_mismatch_returns_spi_error);
+
     return UNITY_END();
 }

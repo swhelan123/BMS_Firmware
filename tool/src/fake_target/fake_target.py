@@ -63,7 +63,7 @@ BL_ENTRY_FLAG = 0xB007B007
 _KNOWN_MODES = frozenset([
     'healthy', 'safe_invalid', 'cell_uv', 'cell_ov', 'temp_invalid',
     'vpack_invalid', 'isospi_fault', 'config_error', 'precharge_fault',
-    'bootloader',
+    'bootloader', 'openwire_detected', 'openwire_pec_fail',
 ])
 
 
@@ -98,6 +98,12 @@ def _apply_simulation_mode(target: 'FakeTarget', mode: str) -> None:
         target.inject_fault(FAULT_BIT_PRECHARGE_TIMEOUT)
     elif mode == 'bootloader':
         target.set_firmware_type(FIRMWARE_TYPE_BOOTLOADER)
+    elif mode == 'openwire_detected':
+        detected = [False] * TOTAL_CELL_COUNT
+        detected[0] = True  # cell 0 has an open wire
+        target.set_open_wire(valid=True, detected=detected)
+    elif mode == 'openwire_pec_fail':
+        target._openwire_pec_fail = True
     else:
         raise ValueError(f"Unknown simulation mode: {mode!r}")
 
@@ -120,6 +126,7 @@ class FakeTarget:
         self._i2c_errors      = 0
         self._open_wire_valid    = False
         self._open_wire_detected = [False] * TOTAL_CELL_COUNT
+        self._openwire_pec_fail  = False
         self._reset_cause     = 0x01  # POR on fresh boot
         self._firmware_type   = FIRMWARE_TYPE_BMS_APP
         # Bootloader update state
@@ -326,11 +333,17 @@ class FakeTarget:
         return self._respond(PKT_GET_DIAGNOSTICS_SUMMARY, bytes(resp), seq)
 
     def _h_run_openwire(self, seq: int) -> bytes:
-        # Simulate successful open-wire check: no open wires detected
-        self._open_wire_valid = True
-        self._open_wire_detected = [False] * TOTAL_CELL_COUNT
+        if self._firmware_type != FIRMWARE_TYPE_BMS_APP:
+            return self._error(PKT_RUN_OPENWIRE, seq, 0x0A)
         resp = bytearray(11)  # status(1) + mask(10)
-        resp[0] = 0  # success
+        if self._openwire_pec_fail:
+            resp[0] = 1  # PEC error during detection
+        else:
+            self._open_wire_valid = True
+            resp[0] = 0
+            for i, det in enumerate(self._open_wire_detected):
+                if det:
+                    resp[1 + i // 8] |= (1 << (i % 8))
         return self._respond(PKT_RUN_OPENWIRE, bytes(resp), seq)
 
     def _h_boot_info(self, seq: int) -> bytes:
