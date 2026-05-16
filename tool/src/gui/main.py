@@ -6,6 +6,7 @@ Install dependency:
 Run:
     python -m tool.src.gui.main
     python -m tool.src.gui.main --fake --mode healthy
+    python -m tool.src.gui.main --fake --mode openwire_detected
 """
 import sys
 import threading
@@ -20,12 +21,14 @@ from PyQt6.QtGui import QIcon
 
 from ..core.app_state import AppState
 from ..core.connection_manager import ConnectionManager
-from ..core.target_model import TargetModel
+from ..core.target_model import TargetModel, TargetRefusedError
 from ..core.polling import PollingLoop
 from ..core.logging_model import EventLog, PacketLog
 from ..connection.device_state import DeviceState, DeviceMode
+from ..protocol.client import ProtocolError
 
 from .pages.connection import ConnectionPage
+from .pages.bringup import BringupPage
 from .pages.dashboard import DashboardPage
 from .pages.cells import CellsPage
 from .pages.temperatures import TemperaturesPage
@@ -44,7 +47,7 @@ class BmsMainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("BMS Tool")
-        self.resize(1100, 750)
+        self.resize(1200, 800)
 
         self._state    = AppState()
         self._conn_mgr = ConnectionManager()
@@ -64,23 +67,25 @@ class BmsMainWindow(QMainWindow):
         tabs = QTabWidget()
         self._tabs = tabs
 
-        self._page_conn  = ConnectionPage(self._state, self)
-        self._page_dash  = DashboardPage(self._state)
-        self._page_cells = CellsPage(self._state)
-        self._page_temps = TemperaturesPage(self._state)
-        self._page_fault = FaultsPage(self._state, self)
-        self._page_cfg   = ConfigPage(self._state, self)
-        self._page_flash = FirmwareFlashPage(self._state, self)
-        self._page_logs  = LogsPage(self._evt_log, self._pkt_log)
+        self._page_conn   = ConnectionPage(self._state, self)
+        self._page_bringup = BringupPage(self._state, self)
+        self._page_dash   = DashboardPage(self._state)
+        self._page_cells  = CellsPage(self._state)
+        self._page_temps  = TemperaturesPage(self._state)
+        self._page_fault  = FaultsPage(self._state, self)
+        self._page_cfg    = ConfigPage(self._state, self)
+        self._page_flash  = FirmwareFlashPage(self._state, self)
+        self._page_logs   = LogsPage(self._evt_log, self._pkt_log)
 
-        tabs.addTab(self._page_conn,  "Connection")
-        tabs.addTab(self._page_dash,  "Dashboard")
-        tabs.addTab(self._page_cells, "Cells")
-        tabs.addTab(self._page_temps, "Temperatures")
-        tabs.addTab(self._page_fault, "Faults")
-        tabs.addTab(self._page_cfg,   "Config")
-        tabs.addTab(self._page_flash, "Firmware Flash")
-        tabs.addTab(self._page_logs,  "Logs")
+        tabs.addTab(self._page_conn,    "Connection")
+        tabs.addTab(self._page_bringup, "Bring-Up")
+        tabs.addTab(self._page_dash,    "Dashboard")
+        tabs.addTab(self._page_cells,   "Cells")
+        tabs.addTab(self._page_temps,   "Temperatures")
+        tabs.addTab(self._page_fault,   "Faults")
+        tabs.addTab(self._page_cfg,     "Config")
+        tabs.addTab(self._page_flash,   "Firmware Flash")
+        tabs.addTab(self._page_logs,    "Logs")
 
         self.setCentralWidget(tabs)
 
@@ -88,21 +93,29 @@ class BmsMainWindow(QMainWindow):
         self._status_label = QLabel("Disconnected")
         bar.addWidget(self._status_label)
 
-        self._page_conn.connect_requested.connect(self._on_connect_requested)
+        # ── Signal wiring ─────────────────────────────────────────────────────
+        self._page_conn.connect_requested.connect(
+            self._on_connect_tcp_requested)
+        self._page_conn.connect_serial_requested.connect(
+            self._on_connect_serial_requested)
         self._page_conn.disconnect_requested.connect(self._on_disconnect)
+
         self._page_fault.clear_latched_requested.connect(self._on_clear_latched)
+        self._page_fault.refresh_requested.connect(self._on_refresh_faults)
 
-    # ── Slots ─────────────────────────────────────────────────────────────────
+        self._page_dash.polling_toggle_requested.connect(self._on_polling_toggle)
+        self._page_dash.refresh_now_requested.connect(   self._on_refresh_now)
 
-    def _on_connect_requested(self, host: str, port: int) -> None:
-        self._evt_log.append(f"Connecting to {host}:{port} …")
-        try:
-            transport = self._conn_mgr.connect_tcp(host, port)
-        except (OSError, IOError) as e:
-            self._evt_log.append(f"Connection failed: {e}")
-            self._status_label.setText(f"Error: {e}")
-            return
+        self._page_cells.measure_once_requested.connect(self._on_measure_cells_once)
+        self._page_cells.refresh_requested.connect(     self._on_refresh_cells)
 
+        self._page_temps.measure_once_requested.connect(self._on_measure_temps_once)
+        self._page_temps.refresh_requested.connect(     self._on_refresh_temps)
+
+    # ── Connect helpers ───────────────────────────────────────────────────────
+
+    def _finish_connect(self, transport) -> None:
+        """Common post-transport-open setup."""
         self._model  = TargetModel(transport)
         device       = self._model.capabilities_handshake()
         self._state.update_device(device)
@@ -111,6 +124,29 @@ class BmsMainWindow(QMainWindow):
         if device.mode == DeviceMode.BMS_APP:
             self._polling = PollingLoop(self._model, self._state, self._evt_log)
             self._polling.start()
+            self._page_dash.set_polling_active(True)
+
+    def _on_connect_tcp_requested(self, host: str, port: int) -> None:
+        self._evt_log.append(f"Connecting TCP → {host}:{port} …")
+        try:
+            transport = self._conn_mgr.connect_tcp(host, port)
+        except (OSError, IOError) as e:
+            self._evt_log.append(f"TCP connection failed: {e}")
+            self._status_label.setText(f"Error: {e}")
+            self._page_conn.refresh(self._state)
+            return
+        self._finish_connect(transport)
+
+    def _on_connect_serial_requested(self, device: str, baud: int) -> None:
+        self._evt_log.append(f"Connecting serial → {device} @ {baud} …")
+        try:
+            transport = self._conn_mgr.connect_serial(device, baud)
+        except Exception as e:
+            self._evt_log.append(f"Serial connection failed: {e}")
+            self._status_label.setText(f"Error: {e}")
+            self._page_conn.refresh(self._state)
+            return
+        self._finish_connect(transport)
 
     def _on_disconnect(self) -> None:
         if self._polling:
@@ -119,7 +155,10 @@ class BmsMainWindow(QMainWindow):
         self._conn_mgr.disconnect()
         self._model = None
         self._state.reset()
+        self._page_dash.set_polling_active(False)
         self._evt_log.append("Disconnected.")
+
+    # ── Fault actions ─────────────────────────────────────────────────────────
 
     def _on_clear_latched(self, mask: int) -> None:
         if self._model is None:
@@ -130,6 +169,87 @@ class BmsMainWindow(QMainWindow):
         except Exception as e:
             self._evt_log.append(f"clear_latched_faults error: {e}")
 
+    def _on_refresh_faults(self) -> None:
+        if self._model is None:
+            return
+        try:
+            fs = self._model.poll_faults()
+            self._state.update_faults(fs)
+        except Exception as e:
+            self._evt_log.append(f"refresh_faults error: {e}")
+
+    # ── Polling controls ──────────────────────────────────────────────────────
+
+    def _on_polling_toggle(self) -> None:
+        if self._polling is None:
+            return
+        if self._polling.running:
+            self._polling.stop()
+            self._polling = None
+        else:
+            self._polling = PollingLoop(self._model, self._state, self._evt_log)
+            self._polling.start()
+
+    def _on_refresh_now(self) -> None:
+        if self._model is None:
+            return
+        try:
+            self._state.update_values(self._model.poll_values())
+        except Exception as e:
+            self._evt_log.append(f"refresh_now error: {e}")
+
+    # ── One-shot measurements ─────────────────────────────────────────────────
+
+    def _on_measure_cells_once(self) -> None:
+        if self._model is None:
+            return
+        try:
+            r  = self._model.measure_cells_once()
+            from ..core.app_state import CellsState
+            cs = CellsState(
+                cell_count   = r['cell_count'],
+                cells_mv     = r['cells_mv'],
+                validity     = r.get('validity'),
+                timestamp_ms = r['timestamp_ms'],
+                valid        = True,
+            )
+            self._state.update_cells(cs)
+        except Exception as e:
+            self._evt_log.append(f"measure_cells_once error: {e}")
+
+    def _on_measure_temps_once(self) -> None:
+        if self._model is None:
+            return
+        try:
+            r  = self._model.measure_temps_once()
+            from ..core.app_state import TempsState
+            ts = TempsState(
+                temp_count = r['temp_count'],
+                temps_cx10 = r['temps_cx10'],
+                valid      = True,
+            )
+            self._state.update_temps(ts)
+        except Exception as e:
+            self._evt_log.append(f"measure_temps_once error: {e}")
+
+    def _on_refresh_cells(self) -> None:
+        if self._model is None:
+            return
+        try:
+            self._state.update_cells(self._model.poll_cells())
+        except Exception as e:
+            self._evt_log.append(f"refresh_cells error: {e}")
+
+    def _on_refresh_temps(self) -> None:
+        if self._model is None:
+            return
+        try:
+            self._state.update_temps(self._model.poll_temps())
+        except Exception as e:
+            self._evt_log.append(f"refresh_temps error: {e}")
+
+    # ── State update dispatch ─────────────────────────────────────────────────
+
     def _on_state_updated(self, key: str) -> None:
         """Called on the main thread whenever AppState changes."""
         device = self._state.device
@@ -137,7 +257,9 @@ class BmsMainWindow(QMainWindow):
             mode_txt = device.mode.name
             err = f" — {device.error_msg}" if device.error_msg else ""
             self._status_label.setText(f"{mode_txt}{err}")
+            self._page_conn.refresh(self._state)
 
+        self._page_bringup.refresh(self._state)
         self._page_dash.refresh(self._state)
         self._page_cells.refresh(self._state)
         self._page_temps.refresh(self._state)
@@ -146,10 +268,26 @@ class BmsMainWindow(QMainWindow):
         self._page_flash.refresh(self._state)
         self._page_logs.refresh()
 
-        # Enable/disable runtime tabs based on mode
+        # Tab enable/disable by mode
         is_app = (device.mode == DeviceMode.BMS_APP)
-        for idx in range(1, self._tabs.count() - 1):  # skip Connection and Logs
-            self._tabs.setTabEnabled(idx, is_app)
+        is_bl  = (device.mode == DeviceMode.BOOTLOADER)
+        is_any = is_app or is_bl
+
+        # Tab indices: 0=Connection, 1=Bring-Up, 2=Dashboard, 3=Cells,
+        #              4=Temps, 5=Faults, 6=Config, 7=Firmware Flash, 8=Logs
+        tab_enabled = [
+            True,    # Connection: always
+            is_any,  # Bring-Up: app or bootloader
+            is_app,  # Dashboard
+            is_app,  # Cells
+            is_app,  # Temperatures
+            is_app,  # Faults
+            is_app,  # Config
+            is_any,  # Firmware Flash: app or bootloader
+            True,    # Logs: always
+        ]
+        for idx, enabled in enumerate(tab_enabled):
+            self._tabs.setTabEnabled(idx, enabled)
 
     def closeEvent(self, event):
         self._on_disconnect()
@@ -169,7 +307,6 @@ def main(argv=None) -> int:
     app.setApplicationName("BMS Tool")
 
     if args.fake:
-        # Start the fake target in a background thread
         from ..fake_target.fake_target import FakeTarget
         threading.Thread(
             target=FakeTarget.serve_tcp,
@@ -183,7 +320,7 @@ def main(argv=None) -> int:
     if args.fake:
         import time
         time.sleep(0.1)  # allow server to start
-        win._on_connect_requested('127.0.0.1', 65102)
+        win._on_connect_tcp_requested('127.0.0.1', 65102)
 
     return app.exec()
 

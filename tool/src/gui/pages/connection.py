@@ -1,4 +1,4 @@
-"""connection.py — Connection page: connect to TCP fake target or serial port."""
+"""connection.py — Connection page: TCP (fake target) or serial port."""
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
     QLabel, QLineEdit, QPushButton, QComboBox, QSpinBox,
@@ -10,8 +10,9 @@ from ...connection.device_state import DeviceMode
 
 
 class ConnectionPage(QWidget):
-    connect_requested    = pyqtSignal(str, int)  # host, port
-    disconnect_requested = pyqtSignal()
+    connect_requested        = pyqtSignal(str, int)  # host, port  (TCP)
+    connect_serial_requested = pyqtSignal(str, int)  # device, baud
+    disconnect_requested     = pyqtSignal()
 
     def __init__(self, state: AppState, parent=None):
         super().__init__(parent)
@@ -37,28 +38,76 @@ class ConnectionPage(QWidget):
         self._port_spin.setMaximumWidth(80)
         tcp_lay.addWidget(self._port_spin)
 
-        self._connect_btn = QPushButton("Connect")
-        self._connect_btn.clicked.connect(self._on_connect)
-        tcp_lay.addWidget(self._connect_btn)
-
-        self._disconnect_btn = QPushButton("Disconnect")
-        self._disconnect_btn.clicked.connect(self.disconnect_requested)
-        self._disconnect_btn.setEnabled(False)
-        tcp_lay.addWidget(self._disconnect_btn)
+        self._connect_tcp_btn = QPushButton("Connect TCP")
+        self._connect_tcp_btn.clicked.connect(self._on_connect_tcp)
+        tcp_lay.addWidget(self._connect_tcp_btn)
 
         tcp_lay.addStretch()
         layout.addWidget(tcp_grp)
+
+        # ── Serial group ─────────────────────────────────────────────────────
+        ser_grp = QGroupBox("Serial Connection (hardware)")
+        ser_lay = QHBoxLayout(ser_grp)
+
+        ser_lay.addWidget(QLabel("Port:"))
+        self._serial_combo = QComboBox()
+        self._serial_combo.setEditable(True)
+        self._serial_combo.setMinimumWidth(160)
+        self._serial_combo.addItems(
+            ["/dev/tty.usbmodem*", "/dev/ttyUSB0", "COM3"])
+        self._serial_combo.setCurrentText("")
+        ser_lay.addWidget(self._serial_combo)
+
+        ser_lay.addWidget(QLabel("Baud:"))
+        self._baud_spin = QSpinBox()
+        self._baud_spin.setRange(9600, 921600)
+        self._baud_spin.setValue(115200)
+        self._baud_spin.setMaximumWidth(90)
+        ser_lay.addWidget(self._baud_spin)
+
+        self._connect_ser_btn = QPushButton("Connect Serial")
+        self._connect_ser_btn.clicked.connect(self._on_connect_serial)
+        ser_lay.addWidget(self._connect_ser_btn)
+
+        ser_lay.addStretch()
+        layout.addWidget(ser_grp)
+
+        # ── Disconnect ───────────────────────────────────────────────────────
+        dc_lay = QHBoxLayout()
+        self._disconnect_btn = QPushButton("Disconnect")
+        self._disconnect_btn.clicked.connect(self.disconnect_requested)
+        self._disconnect_btn.setEnabled(False)
+        dc_lay.addWidget(self._disconnect_btn)
+        dc_lay.addStretch()
+        layout.addLayout(dc_lay)
+
+        # ── Fake-target helper ───────────────────────────────────────────────
+        hint_grp = QGroupBox("Fake Target — Quick Start")
+        hint_lay = QVBoxLayout(hint_grp)
+        hint_lay.addWidget(QLabel(
+            "Start a fake BMS target in a terminal, then connect via TCP above:"))
+        hint_cmds = [
+            "python -m tool.src.fake_target.fake_target --mode healthy",
+            "python -m tool.src.fake_target.fake_target --mode openwire_detected",
+            "python -m tool.src.fake_target.fake_target --mode cell_uv",
+            "python -m tool.src.fake_target.fake_target --mode bootloader",
+        ]
+        for cmd in hint_cmds:
+            lbl = QLabel(f"  {cmd}")
+            lbl.setStyleSheet("font-family: monospace; color: #555;")
+            hint_lay.addWidget(lbl)
+        layout.addWidget(hint_grp)
 
         # ── Status group ─────────────────────────────────────────────────────
         status_grp = QGroupBox("Device Status")
         status_lay = QVBoxLayout(status_grp)
 
-        self._mode_label   = QLabel("Mode: —")
-        self._fw_label     = QLabel("Firmware: —")
-        self._hw_label     = QLabel("HW Profile: —")
-        self._proto_label  = QLabel("Protocol: —")
-        self._cells_label  = QLabel("Cells/Temps: —")
-        self._error_label  = QLabel("")
+        self._mode_label  = QLabel("Mode: —")
+        self._fw_label    = QLabel("Firmware: —")
+        self._hw_label    = QLabel("HW Profile: —")
+        self._proto_label = QLabel("Protocol: —")
+        self._cells_label = QLabel("Cells/Temps: —")
+        self._error_label = QLabel("")
         self._error_label.setStyleSheet("color: red;")
 
         for w in (self._mode_label, self._fw_label, self._hw_label,
@@ -68,10 +117,26 @@ class ConnectionPage(QWidget):
         layout.addWidget(status_grp)
         layout.addStretch()
 
-    def _on_connect(self) -> None:
-        self.connect_requested.emit(self._host_edit.text(), self._port_spin.value())
-        self._connect_btn.setEnabled(False)
+    # ── Slots ─────────────────────────────────────────────────────────────────
+
+    def _on_connect_tcp(self) -> None:
+        self.connect_requested.emit(
+            self._host_edit.text(), self._port_spin.value())
+        self._set_connecting()
+
+    def _on_connect_serial(self) -> None:
+        device = self._serial_combo.currentText().strip()
+        if not device:
+            return
+        self.connect_serial_requested.emit(device, self._baud_spin.value())
+        self._set_connecting()
+
+    def _set_connecting(self) -> None:
+        self._connect_tcp_btn.setEnabled(False)
+        self._connect_ser_btn.setEnabled(False)
         self._disconnect_btn.setEnabled(True)
+
+    # ── Refresh ───────────────────────────────────────────────────────────────
 
     def refresh(self, state: AppState) -> None:
         d    = state.device
@@ -93,5 +158,6 @@ class ConnectionPage(QWidget):
                 lbl.setText("—")
 
         connected = d.mode != DeviceMode.DISCONNECTED
-        self._connect_btn.setEnabled(not connected)
+        self._connect_tcp_btn.setEnabled(not connected)
+        self._connect_ser_btn.setEnabled(not connected)
         self._disconnect_btn.setEnabled(connected)

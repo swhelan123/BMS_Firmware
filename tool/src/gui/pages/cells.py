@@ -1,9 +1,9 @@
 """cells.py — 75-cell voltage table with min/max/avg/mismatch summary."""
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QTableWidget, QTableWidgetItem, QGroupBox,
+    QTableWidget, QTableWidgetItem, QGroupBox, QPushButton,
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor
 
 from ...core.app_state import AppState
@@ -13,12 +13,27 @@ _NORMAL_COLOR  = QColor(255, 255, 255)
 
 
 class CellsPage(QWidget):
+    measure_once_requested = pyqtSignal()
+    refresh_requested      = pyqtSignal()
+
     def __init__(self, state: AppState, parent=None):
         super().__init__(parent)
         self._build_ui()
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
+
+        # Action buttons
+        act_grp = QGroupBox("Actions")
+        act_lay = QHBoxLayout(act_grp)
+        self._meas_btn    = QPushButton("Measure Cells Once")
+        self._refresh_btn = QPushButton("Refresh Snapshot")
+        self._meas_btn.clicked.connect(   self.measure_once_requested)
+        self._refresh_btn.clicked.connect(self.refresh_requested)
+        act_lay.addWidget(self._meas_btn)
+        act_lay.addWidget(self._refresh_btn)
+        act_lay.addStretch()
+        layout.addWidget(act_grp)
 
         # Summary row
         sum_grp = QGroupBox("Summary")
@@ -27,10 +42,11 @@ class CellsPage(QWidget):
         self._max_lbl  = QLabel("Max: —")
         self._avg_lbl  = QLabel("Avg: —")
         self._mm_lbl   = QLabel("Mismatch: —")
+        self._ts_lbl   = QLabel("Snapshot: —")
         self._warn_lbl = QLabel("")
         self._warn_lbl.setStyleSheet("color: orange; font-weight: bold;")
         for w in (self._min_lbl, self._max_lbl, self._avg_lbl,
-                  self._mm_lbl, self._warn_lbl):
+                  self._mm_lbl, self._ts_lbl, self._warn_lbl):
             sum_lay.addWidget(w)
         sum_lay.addStretch()
         layout.addWidget(sum_grp)
@@ -57,6 +73,10 @@ class CellsPage(QWidget):
             self._max_lbl.setText(f"Max: {max(valid_mv)} mV")
             self._avg_lbl.setText(f"Avg: {sum(valid_mv)//len(valid_mv)} mV")
             self._mm_lbl.setText( f"Mismatch: {max(valid_mv)-min(valid_mv)} mV")
+
+        if cs.timestamp_ms:
+            self._ts_lbl.setText(f"Snapshot: {cs.timestamp_ms} ms")
+
         invalid_count = cs.cell_count - len(valid_mv)
         self._warn_lbl.setText(
             f"⚠ {invalid_count} invalid cells" if invalid_count else "")

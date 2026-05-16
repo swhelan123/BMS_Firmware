@@ -25,6 +25,7 @@ _FAULT_NAMES = [
 
 class FaultsPage(QWidget):
     clear_latched_requested = pyqtSignal(int)  # mask of faults to clear
+    refresh_requested       = pyqtSignal()
 
     def __init__(self, state: AppState, parent=None):
         super().__init__(parent)
@@ -48,12 +49,15 @@ class FaultsPage(QWidget):
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         layout.addWidget(self._table)
 
-        # Clear latched button
+        # Buttons
         btn_lay = QHBoxLayout()
-        self._clear_btn = QPushButton("Clear All Latched Faults")
+        self._refresh_btn = QPushButton("Refresh")
+        self._clear_btn   = QPushButton("Clear All Latched Faults")
         self._clear_btn.setEnabled(False)
+        self._refresh_btn.clicked.connect(self.refresh_requested)
         self._clear_btn.clicked.connect(
             lambda: self.clear_latched_requested.emit(0xFFFFFFFFFFFFFFFF))
+        btn_lay.addWidget(self._refresh_btn)
         btn_lay.addWidget(self._clear_btn)
         btn_lay.addStretch()
         layout.addLayout(btn_lay)
@@ -68,18 +72,16 @@ class FaultsPage(QWidget):
 
         self._active_lbl.setText( f"Active:  0x{active:016X}")
         self._latched_lbl.setText(f"Latched: 0x{latched:016X}")
-
         self._clear_btn.setEnabled(bool(latched))
 
-        # Build row list for bits that are active or latched
         interesting = [i for i in range(64) if (active | latched) & (1 << i)]
         self._table.setRowCount(len(interesting))
         for row, bit in enumerate(interesting):
             is_active  = bool(active  & (1 << bit))
             is_latched = bool(latched & (1 << bit))
-            name = _FAULT_NAMES[bit] if bit < len(_FAULT_NAMES) else f"BIT_{bit}"
-            state_txt = "ACTIVE+LATCHED" if (is_active and is_latched) else \
-                        "ACTIVE"         if is_active  else "LATCHED"
+            name       = _FAULT_NAMES[bit] if bit < len(_FAULT_NAMES) else f"BIT_{bit}"
+            state_txt  = "ACTIVE+LATCHED" if (is_active and is_latched) else \
+                         "ACTIVE"         if is_active  else "LATCHED"
             color = _ACTIVE_COLOR if is_active else _LATCHED_COLOR
 
             for col, text in enumerate([str(bit), name, state_txt]):

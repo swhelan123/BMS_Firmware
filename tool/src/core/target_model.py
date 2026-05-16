@@ -258,6 +258,33 @@ class TargetModel:
         self._require_app_mode()
         return self._client.measure_power_once()
 
+    # ── Bootloader / protocol update ─────────────────────────────────────────
+
+    def _require_bootloader_mode(self) -> None:
+        if self._device.mode != DeviceMode.BOOTLOADER:
+            raise TargetRefusedError(
+                f"Requires BOOTLOADER mode; current: {self._device.mode.name}")
+
+    def get_boot_info(self) -> dict:
+        self._require_bootloader_mode()
+        return self._client.get_boot_info()
+
+    def boot_update_begin(self, header: bytes) -> dict:
+        self._require_bootloader_mode()
+        return self._client.boot_update_begin(header)
+
+    def boot_update_chunk(self, index: int, data: bytes) -> int:
+        self._require_bootloader_mode()
+        return self._client.boot_update_chunk(index, data)
+
+    def boot_update_finalize(self) -> dict:
+        self._require_bootloader_mode()
+        return self._client.boot_update_finalize()
+
+    def boot_update_abort(self) -> None:
+        self._require_bootloader_mode()
+        self._client.boot_update_abort()
+
     # ── Package compatibility ─────────────────────────────────────────────────
 
     def validate_package_against_target(self, pkg_header) -> Tuple[bool, str]:

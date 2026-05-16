@@ -29,23 +29,26 @@ class ConfigPage(QWidget):
         btn_grp = QGroupBox("Actions")
         btn_lay = QHBoxLayout(btn_grp)
 
-        self._read_btn  = QPushButton("Read from Target")
-        self._load_btn  = QPushButton("Load File…")
-        self._save_btn  = QPushButton("Save to File…")
-        self._val_btn   = QPushButton("Validate Offline")
-        self._apply_btn = QPushButton("Apply to RAM")
-        self._store_btn = QPushButton("Store to Flash")
+        self._read_btn    = QPushButton("Read from Target")
+        self._load_btn    = QPushButton("Load File…")
+        self._save_btn    = QPushButton("Save to File…")
+        self._export_btn  = QPushButton("Export Default Config")
+        self._val_btn     = QPushButton("Validate Offline")
+        self._apply_btn   = QPushButton("Apply to RAM")
+        self._store_btn   = QPushButton("Store to Flash")
 
         for btn in (self._read_btn, self._load_btn, self._save_btn,
-                    self._val_btn, self._apply_btn, self._store_btn):
+                    self._export_btn, self._val_btn,
+                    self._apply_btn,  self._store_btn):
             btn_lay.addWidget(btn)
 
-        self._read_btn.clicked.connect(self._on_read)
-        self._load_btn.clicked.connect(self._on_load)
-        self._save_btn.clicked.connect(self._on_save)
-        self._val_btn.clicked.connect(self._on_validate_offline)
-        self._apply_btn.clicked.connect(self._on_apply_ram)
-        self._store_btn.clicked.connect(self._on_store)
+        self._read_btn.clicked.connect(   self._on_read)
+        self._load_btn.clicked.connect(   self._on_load)
+        self._save_btn.clicked.connect(   self._on_save)
+        self._export_btn.clicked.connect( self._on_export_default)
+        self._val_btn.clicked.connect(    self._on_validate_offline)
+        self._apply_btn.clicked.connect(  self._on_apply_ram)
+        self._store_btn.clicked.connect(  self._on_store)
 
         layout.addWidget(btn_grp)
 
@@ -137,6 +140,22 @@ class ConfigPage(QWidget):
             ok, err_off, msg = model.apply_config_ram(self._cfg)
             self._set_status(f"Apply RAM: {'PASS' if ok else 'FAIL — ' + msg}", ok=ok)
         except (ProtocolError, TargetRefusedError) as e:
+            self._set_status(str(e), ok=False)
+
+    def _on_export_default(self) -> None:
+        from ...config.schema import BmsConfig
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export Default Config", "bms_config_default.bin",
+            "Config (*.bin);;All (*)")
+        if not path:
+            return
+        try:
+            cfg = BmsConfig()
+            Path(path).write_bytes(cfg.pack())
+            self._cfg = cfg
+            self._show_config()
+            self._set_status(f"Default config exported to {path}")
+        except Exception as e:
             self._set_status(str(e), ok=False)
 
     def _on_store(self) -> None:

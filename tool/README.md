@@ -56,6 +56,7 @@ tool/
     test_cli.py              CLI commands via TCP loopback
     test_bootloader_update.py Bootloader update protocol + BootloaderUpdater + CLI
     test_gui_smoke.py        GUI import/construct (skipped if PyQt6 absent)
+    test_gui_pages.py        Per-page construction, signal, and state tests
 ```
 
 ## CLI
@@ -101,14 +102,42 @@ python -m tool.src.cli.bmsctl stlink dry-run-app fw.pkg
 
 ```bash
 pip install PyQt6
-python -m tool.src.gui.main --fake --mode healthy   # auto-connect to fake target
-python -m tool.src.gui.main                         # connect via UI
+python -m tool.src.gui.main --fake --mode healthy           # auto-connect, app mode
+python -m tool.src.gui.main --fake --mode openwire_detected # test open-wire flow
+python -m tool.src.gui.main --fake --mode bootloader        # test update simulation
+python -m tool.src.gui.main                                 # connect via UI (TCP or serial)
 ```
 
-Tabs: Connection | Dashboard | Cells | Temperatures | Faults | Config | Firmware Flash | Logs
+Tabs: Connection | Bring-Up | Dashboard | Cells | Temperatures | Faults | Config | Firmware Flash | Logs
+
+**Connection page** — TCP (for fake target) and serial (for hardware) with baud-rate selector.
+Quick-start CLI hints printed on the page.
+
+**Bring-Up / Diagnostics page** — bench bring-up without hardware:
+- Displays diagnostics counters (reset cause, PEC errors, I2C errors, open-wire mask, uptime)
+- GPIO + outputs snapshot (CS_CELL/TEMP, power button, charge detect, master-ok, etc.)
+- Chain probe buttons: Probe CELL Chain, Probe TEMP Chain, Probe ISL28022, Read Vpack Raw
+- One-shot measurements: Measure Cells Once, Measure Temps Once, Measure Power Once
+- Open-wire detection: Run Open-Wire, shows detected cell indices
+- Safety actions: Balance Disable-All, Clear Latched Faults
+
+**Dashboard** — polling start/stop + refresh-now controls; latched fault count; "—" on invalid data.
+
+**Cells / Temperatures** — measure-once and refresh-snapshot buttons; snapshot timestamp.
+
+**Faults** — Refresh button; clear-latched enabled only when latched faults present.
+
+**Config** — Export Default Config button writes `BmsConfig()` defaults to a `.bin` file.
+
+**Firmware Flash** — Protocol Update Simulation section:
+- Enter Bootloader button (transitions fake target to bootloader mode)
+- Run Simulation: loads the selected package, runs begin/chunk/finalize against the bootloader
+- Progress bar shows chunk delivery; Abort cancels mid-flight
+- Execute Flash (ST-Link, hardware required) remains behind safety checkbox
 
 Safety enforced in GUI:
-- Runtime tabs disabled until `BMS_APP` mode confirmed
+- Bring-Up and Firmware Flash tabs also enabled in BOOTLOADER mode
+- All other runtime tabs disabled until `BMS_APP` mode confirmed
 - Config/update buttons gated on hw_profile match
 - Flash execute requires explicit safety checkbox
 - No output-force or balancing-force buttons anywhere
@@ -127,12 +156,19 @@ Safety enforced in GUI:
 | `config_error` | FAULT_CONFIG_INVALID active |
 | `precharge_fault` | FAULT_PRECHARGE_TIMEOUT active |
 | `bootloader` | capabilities returns FIRMWARE_TYPE_BOOTLOADER |
+| `openwire_detected` | open-wire scan returns cell[0] flagged; status=0 |
+| `openwire_pec_fail` | open-wire scan returns status=1 (PEC failure) |
 
 ## Tests
 
 ```bash
 python3 -m pytest tool/tests/ -q
-# 174+ passed, 1 skipped (GUI test skipped without PyQt6)
+# 200+ passed, 1 skipped (GUI tests skipped without PyQt6)
+```
+
+Open-wire CLI:
+```bash
+python -m tool.src.cli.bmsctl openwire run [--json]
 ```
 
 ## Local Development
