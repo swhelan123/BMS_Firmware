@@ -4,6 +4,7 @@
 # Usage:
 #   ./scripts/validate_all.sh
 #   ./scripts/validate_all.sh --no-firmware   # skip STM32 build (no toolchain needed)
+#   ./scripts/validate_all.sh --no-c-tests    # skip C unit tests (no clang needed)
 #
 # Exit codes:
 #   0  all sections passed
@@ -14,8 +15,10 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
 SKIP_FIRMWARE=0
+SKIP_C_TESTS=0
 for arg in "$@"; do
     [[ "$arg" == "--no-firmware" ]] && SKIP_FIRMWARE=1
+    [[ "$arg" == "--no-c-tests"  ]] && SKIP_C_TESTS=1
 done
 
 PASS=0
@@ -36,7 +39,7 @@ _run() {
     else
         _fail "$label"
         echo "    --- output ---"
-        sed 's/^/    /' /tmp/validate_out.txt | head -30
+        sed 's/^/    /' /tmp/validate_out.txt | head -40
         echo "    ---"
     fi
 }
@@ -71,7 +74,7 @@ if [[ -n "$PYTHON" ]] && "$PYTHON" -c "import PyQt6" 2>/dev/null; then
     _ok "PyQt6 installed"
     HAS_PYQT6=1
 else
-    _skip "PyQt6 not installed (GUI smoke test will skip)"
+    _skip "PyQt6 not installed (GUI smoke tests will skip)"
 fi
 
 HAS_PYYAML=0
@@ -90,6 +93,34 @@ else
     _skip "arm-none-eabi-gcc not found (firmware build will skip)"
 fi
 
+HAS_CLANG=0
+if command -v clang &>/dev/null; then
+    _ok "clang: $(clang --version | head -1)"
+    HAS_CLANG=1
+else
+    _skip "clang not found (C unit tests will skip)"
+fi
+
+# ── Script syntax checks ──────────────────────────────────────────────────────
+
+_header "Script syntax checks"
+
+for script in \
+    scripts/setup_dev_env.sh \
+    scripts/run_gui.sh \
+    scripts/bmsctl.sh \
+    scripts/demo_local.sh \
+    scripts/validate_all.sh \
+    scripts/build_firmware.sh \
+    scripts/package_release.sh
+do
+    if [[ -f "$script" ]]; then
+        _run "bash -n $script" bash -n "$script"
+    else
+        _skip "$script not found"
+    fi
+done
+
 # ── Python tool tests ─────────────────────────────────────────────────────────
 
 _header "Python tool tests"
@@ -100,8 +131,21 @@ else
     _run "pytest tool/tests/ (all)" \
         "$PYTHON" -m pytest tool/tests/ -q --tb=short
 
-    _run "fake-target self-test (all 10 modes)" \
+    _run "fake-target self-test (all modes)" \
         "$PYTHON" -m tool.src.cli.bmsctl fake-target self-test
+fi
+
+# ── C unit tests ──────────────────────────────────────────────────────────────
+
+_header "C unit tests"
+
+if [[ "$SKIP_C_TESTS" -eq 1 ]]; then
+    _skip "C unit tests (--no-c-tests)"
+elif [[ "$HAS_CLANG" -eq 0 ]]; then
+    _skip "C unit tests (clang not found)"
+else
+    _run "C unit tests (build_tests/run_tests.sh)" \
+        bash build_tests/run_tests.sh
 fi
 
 # ── Config round-trip ─────────────────────────────────────────────────────────
@@ -147,12 +191,11 @@ if [[ -n "$PYTHON" ]]; then
     TMP_DIR2="$(mktemp -d)"
     trap 'rm -rf "$TMP_DIR2"' EXIT
 
-    # Use build_firmware/firmware.bin if present, else synthesise a test binary
     if [[ -f "build_firmware/firmware.bin" ]]; then
         FW_SRC="build_firmware/firmware.bin"
-        _ok "using real firmware.bin ($(wc -c < "$FW_SRC") bytes)"
+        _ok "using real firmware.bin ($(wc -c < "$FW_SRC" | tr -d ' ') bytes)"
     else
-        python3 -c "import sys; sys.stdout.buffer.write(bytes(range(256))*32)" \
+        "$PYTHON" -c "import sys; sys.stdout.buffer.write(bytes(range(256))*32)" \
             > "$TMP_DIR2/fw.bin"
         FW_SRC="$TMP_DIR2/fw.bin"
         _ok "using synthetic 8 KB firmware"
@@ -171,18 +214,19 @@ if [[ -n "$PYTHON" ]]; then
     _run "update dry-run" \
         "$PYTHON" -m tool.src.cli.bmsctl update dry-run "$TMP_DIR2/fw.pkg"
 
+    _run "stlink dry-run-app" \
+        "$PYTHON" -m tool.src.cli.bmsctl stlink dry-run-app "$TMP_DIR2/fw.pkg"
+
     # Start a fresh fake target for the simulate test
     VAL_PORT=65191
-    "$PYTHON" -m tool.src.cli.bmsctl fake-target run --bind "127.0.0.1:$VAL_PORT" &
+    "$PYTHON" -m tool.src.cli.bmsctl fake-target run \
+        --bind "127.0.0.1:$VAL_PORT" >/dev/null 2>&1 &
     _FT_PID=$!
     sleep 0.3
     _run "update simulate (fake target, healthy→bootloader)" \
         "$PYTHON" -m tool.src.cli.bmsctl update simulate \
                   "$TMP_DIR2/fw.pkg" --host 127.0.0.1 --port $VAL_PORT
     kill "$_FT_PID" 2>/dev/null; wait "$_FT_PID" 2>/dev/null || true
-
-    _run "stlink dry-run-app" \
-        "$PYTHON" -m tool.src.cli.bmsctl stlink dry-run-app "$TMP_DIR2/fw.pkg"
 fi
 
 # ── Firmware build ─────────────────────────────────────────────────────────────
@@ -195,6 +239,32 @@ elif [[ "$HAS_ARM_GCC" -eq 0 ]]; then
     _skip "firmware build (no arm-none-eabi-gcc)"
 else
     _run "firmware build (STM32F303)" ./scripts/build_firmware.sh
+    if [[ -f "build_firmware/firmware.bin" ]]; then
+        SIZE="$(wc -c < build_firmware/firmware.bin | tr -d ' ')"
+        echo "    firmware.bin: ${SIZE} bytes"
+    fi
+fi
+
+# ── Release bundle (smoke) ────────────────────────────────────────────────────
+
+_header "Release bundle (smoke)"
+
+if [[ -n "$PYTHON" ]]; then
+    TMPREL="$(mktemp -d)"
+    trap 'rm -rf "$TMPREL"' EXIT
+    if ./scripts/package_release.sh --outdir "$TMPREL" --version validate-smoke \
+            > /tmp/validate_out.txt 2>&1; then
+        BUNDLE="$TMPREL/bms-vvalidate-smoke"
+        if [[ -d "$BUNDLE" && -f "$BUNDLE/README.md" && -d "$BUNDLE/tool" ]]; then
+            _ok "package_release.sh created bundle with README.md + tool/"
+        else
+            _fail "package_release.sh ran but bundle structure is wrong"
+            ls "$BUNDLE" 2>/dev/null | sed 's/^/    /' | head -10
+        fi
+    else
+        _fail "package_release.sh"
+        sed 's/^/    /' /tmp/validate_out.txt | head -20
+    fi
 fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────

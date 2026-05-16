@@ -1,14 +1,56 @@
-
+# ── Build outputs ─────────────────────────────────────────────────────────────
 build_firmware/
+build_tests/
+dist/
 
-build_tests/bin/
-
-__pycache__/
-
-*.pyc
-
-.DS_Store
-
+# ── Python ────────────────────────────────────────────────────────────────────
 .venv/
-
+__pycache__/
+*.py[cod]
+*.pyo
 .pytest_cache/
+*.egg-info/
+.eggs/
+*.egg
+
+# ── C / compiler ──────────────────────────────────────────────────────────────
+*.o
+*.d
+*.a
+*.so
+
+# ── CMake ─────────────────────────────────────────────────────────────────────
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+build.ninja
+.ninja_deps
+.ninja_log
+install_manifest.txt
+CTestTestfile.cmake
+
+# ── macOS ─────────────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.vscode/settings.json
+.vscode/launch.json
+.idea/
+*.swp
+*.swo
+*~
+
+# ── Generated / temp ──────────────────────────────────────────────────────────
+*.log
+/tmp/
+*.tmp
+
+# ── Secrets / env ─────────────────────────────────────────────────────────────
+.env
+*.pem
+*.key
