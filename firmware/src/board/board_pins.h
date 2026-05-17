@@ -34,8 +34,9 @@
 #define I2C_SDA_PIN         10u     /* PA10 — AF4: I2C2_SDA */
 #define I2C_AF              4u
 
-/* OQ-I2C: ISL28022 I2C address depends on A0/A1 pin strap — TBD */
-#define ISL28022_I2C_ADDR   (0x40u) /* placeholder; confirm from hardware */
+/* ISL28022 I2C address: A0 and A1 pins are unconnected (float → pulled low).
+ * Default address = 0x40 (A1=0, A0=0). Verify on board before first I2C test. */
+#define ISL28022_I2C_ADDR   (0x40u)
 
 /* ── ADC1 — Vpack load-side voltage ─────────────────────────────────────── */
 #define VPACK_ADC_PORT      GPIOA
@@ -51,12 +52,11 @@
 #define CAN_AF              9u
 
 /* ── Permission outputs ───────────────────────────────────────────────────── */
-/* PB10 and PB11 drive downstream shutdown logic through MOSFET stages.
- * Downstream signals are active-low: MCU HIGH → MOSFET on → downstream LOW (active).
- * Safe default = MCU LOW (MOSFET off, downstream HIGH = inactive).
- *
- * OQ-POL: For PB0 (Charge) and PB2 (ChargerSafety), downstream polarity is
- *         TBD pending schematic review. Treat as active-high-MCU until confirmed. */
+/* All four permission outputs (PB10/PB11/PB0/PB2) drive downstream shutdown
+ * logic through identical N-channel MOSFET stages (confirmed from schematic):
+ *   MCU HIGH → MOSFET on → drain pulled LOW → downstream active-low signal asserted.
+ *   MCU LOW  → MOSFET off → downstream pulled HIGH → signal inactive (safe).
+ * Safe default at reset = all MCU LOW (board_outputs_init_safe() enforces this). */
 #define OUTPUT_PORT_B           GPIOB
 
 #define PIN_CHARGE_ENABLE       0u   /* PB0  — Charge permission output       */

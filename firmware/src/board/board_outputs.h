@@ -3,12 +3,10 @@
  * This is the ONLY module that calls the MCU GPIO set functions for permission
  * outputs. All other modules call board_outputs_set_*() via this API.
  *
- * Output semantics (STM32F303VC MCU-level):
- *   PB10 (Discharge) / PB11 (MasterOk): downstream active-low through MOSFET.
+ * Output semantics (STM32F303VC MCU-level, confirmed from schematic):
+ *   All four permission outputs (PB10/PB11/PB0/PB2) share the same MOSFET model:
  *     MCU HIGH → MOSFET on → downstream LOW → permission ACTIVE.
  *     MCU LOW  → MOSFET off → downstream HIGH → permission INACTIVE (safe).
- *   PB0 (Charge) / PB2 (ChargerSafety): OQ-POL — polarity TBD.
- *     Currently treated as MCU HIGH = active until hardware confirmed.
  *   PB5 (PowerEnable): HIGH keeps board alive; LOW releases power latch.
  *   PB1 (LED0), PB3 (PowerLED): HIGH = LED on.
  *

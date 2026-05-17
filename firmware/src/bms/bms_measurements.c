@@ -3,9 +3,8 @@
  * Temperature measurement uses ADCV on the TEMP chain (C-inputs), not ADAX.
  * Per hardware contract §7: sensors are measured on C-inputs via S-output bias.
  *
- * Enepaq V-T table: PLACEHOLDER — populate from Sony-Murata VTC6 datasheet
- * once hardware is confirmed.  All temp readings remain INVALID until table
- * is populated.  See OQ-TMP in docs/01_hardware_contract.md.
+ * Enepaq V-T table: Sony-Murata NTC Table 5, 33 breakpoints -40°C to +120°C.
+ * Voltages in mV (LTC6812 raw × 100µV / 10), temperatures in °C×10.
  */
 #include "bms_measurements.h"
 #include "bms_config.h"
@@ -24,46 +23,66 @@ static TempSnapshot    s_temps;
 static PackMeasurement s_pack;
 
 /* ── Enepaq V-T lookup table ──────────────────────────────────────────────── */
-/* Units: voltage in mV (100µV LSB × raw / 10), temperature in °C×10.
- * Monotonically decreasing voltage with increasing temperature.
- *
- * OQ-TMP: replace with actual Enepaq/Sony-Murata VTC6 V-T breakpoints.
- * Until populated, ENEPAQ_TABLE_POPULATED must remain 0. */
-#define ENEPAQ_TABLE_POPULATED  0
+/* Source: Sony-Murata NTC sensor Table 5 (confirmed datasheet values).
+ * Sorted mv DESCENDING (highest voltage = lowest temperature).
+ * Units: voltage in mV, temperature in °C×10.
+ * Range: 2440 mV (−40°C) → 1300 mV (+120°C). Out-of-range → TEMP_INVALID_CX10. */
+#define ENEPAQ_TABLE_POPULATED  1
 
-#if ENEPAQ_TABLE_POPULATED
 typedef struct { uint16_t mv; int16_t cx10; } VTPoint;
 static const VTPoint k_enepaq_vt[] = {
-    /* { voltage_mv, temperature_cx10 } — sorted by mv DESCENDING */
-    /* TODO: populate from datasheet */
+    /* { voltage_mv, temperature_cx10 } */
+    { 2440, -400 },  /* -40°C */
+    { 2420, -350 },  /* -35°C */
+    { 2400, -300 },  /* -30°C */
+    { 2380, -250 },  /* -25°C */
+    { 2350, -200 },  /* -20°C */
+    { 2320, -150 },  /* -15°C */
+    { 2270, -100 },  /* -10°C */
+    { 2230,  -50 },  /*  -5°C */
+    { 2170,    0 },  /*   0°C */
+    { 2110,   50 },  /*  +5°C */
+    { 2050,  100 },  /* +10°C */
+    { 1990,  150 },  /* +15°C */
+    { 1920,  200 },  /* +20°C */
+    { 1860,  250 },  /* +25°C */
+    { 1800,  300 },  /* +30°C */
+    { 1740,  350 },  /* +35°C */
+    { 1680,  400 },  /* +40°C */
+    { 1630,  450 },  /* +45°C */
+    { 1590,  500 },  /* +50°C */
+    { 1550,  550 },  /* +55°C */
+    { 1510,  600 },  /* +60°C */
+    { 1480,  650 },  /* +65°C */
+    { 1450,  700 },  /* +70°C */
+    { 1430,  750 },  /* +75°C */
+    { 1400,  800 },  /* +80°C */
+    { 1380,  850 },  /* +85°C */
+    { 1370,  900 },  /* +90°C */
+    { 1350,  950 },  /* +95°C */
+    { 1340, 1000 },  /* +100°C */
+    { 1330, 1050 },  /* +105°C */
+    { 1320, 1100 },  /* +110°C */
+    { 1310, 1150 },  /* +115°C */
+    { 1300, 1200 },  /* +120°C */
 };
 #define ENEPAQ_VT_COUNT  (sizeof(k_enepaq_vt) / sizeof(k_enepaq_vt[0]))
-#endif
 
 /* Convert a measured voltage (in mV, 100µV LSB from LTC6812 raw/10) to °C×10.
- * Returns TEMP_INVALID_CX10 if voltage is outside the table range or table
- * is not yet populated. */
+ * Returns TEMP_INVALID_CX10 if voltage is outside table range [1300, 2440] mV. */
 static int16_t enepaq_voltage_to_cx10(uint16_t mv) {
-#if ENEPAQ_TABLE_POPULATED
-    if (ENEPAQ_VT_COUNT < 2) { return TEMP_INVALID_CX10; }
-    if (mv > k_enepaq_vt[0].mv || mv < k_enepaq_vt[ENEPAQ_VT_COUNT - 1].mv) {
+    if (mv > k_enepaq_vt[0].mv || mv < k_enepaq_vt[ENEPAQ_VT_COUNT - 1u].mv) {
         return TEMP_INVALID_CX10;
     }
-    for (uint8_t i = 0; i < ENEPAQ_VT_COUNT - 1u; i++) {
+    for (uint8_t i = 0u; i < ENEPAQ_VT_COUNT - 1u; i++) {
         if (mv <= k_enepaq_vt[i].mv && mv >= k_enepaq_vt[i + 1u].mv) {
-            /* Linear interpolation between breakpoints */
             int32_t dv = (int32_t)k_enepaq_vt[i].mv - (int32_t)k_enepaq_vt[i + 1u].mv;
             int32_t dt = (int32_t)k_enepaq_vt[i + 1u].cx10 - (int32_t)k_enepaq_vt[i].cx10;
             int32_t offset = (int32_t)k_enepaq_vt[i].mv - (int32_t)mv;
-            int32_t cx10 = (int32_t)k_enepaq_vt[i].cx10 + (offset * dt) / dv;
-            return (int16_t)cx10;
+            return (int16_t)((int32_t)k_enepaq_vt[i].cx10 + (offset * dt) / dv);
         }
     }
     return TEMP_INVALID_CX10;
-#else
-    (void)mv;
-    return TEMP_INVALID_CX10; /* OQ-TMP: Enepaq V-T table not yet populated */
-#endif
 }
 
 /* ── Cell cycle ───────────────────────────────────────────────────────────── */

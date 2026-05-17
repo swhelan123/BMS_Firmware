@@ -10,7 +10,7 @@
 | PA6 | SPI1_MISO | IN | SPI MISO shared by both chains | AF5 |
 | PA7 | SPI1_MOSI | OUT | SPI MOSI shared by both chains | AF5 |
 | PA1 | VPACK_ADC | IN (analog) | ADC1_IN2; load-side / precharge-bus voltage | Scaled analogue input; see calibration in config |
-| PA9 | I2C2_SCL | OUT | I2C2 clock to ISL28022 | AF4; 400 kHz fast-mode |
+| PA9 | I2C2_SCL | OUT | I2C2 clock to ISL28022 | AF4; 100 kHz standard mode (bring-up); 4.75 kΩ external pull-up |
 | PA10 | I2C2_SDA | BIDIR | I2C2 data to ISL28022 | AF4 |
 | PB11 | MASTER_OK | OUT | MasterOk / multipurpose permission into shutdown logic | Not a direct relay driver; active polarity TBD per board |
 | PB10 | DISCHARGE_PERM | OUT | DischargePermission into shutdown logic | Not a direct relay driver |
@@ -26,7 +26,7 @@
 | PA13 | SWDIO | BIDIR | SWD debug/programming data | Pulled up; AF0 |
 | PA14 | SWDCK | IN | SWD debug/programming clock | Pulled down; AF0 |
 | — | NRST | IN | Reset pin | External reset; no internal pull needed if board provides |
-| PB8 | BOOT0 | IN | Boot mode selection | Low = normal boot; High = system bootloader; board must pull low for normal operation |
+| BOOT0 | IN | Boot mode selection | Low = normal boot; High = system bootloader; board must pull low for normal operation |
 
 > **OPEN QUESTION:** Exact GPIO for POWER_ENABLE, POWER_BUTTON, CHARGE_DETECT — confirm from schematic.
 > **OPEN QUESTION:** Active polarity (assert = HIGH or LOW) for each permission output — confirm from shutdown logic schematic.
@@ -161,8 +161,8 @@ Measurement sequence:
 
 S outputs must be cleared on success and on every failure/error path.
 
-> **OPEN QUESTION:** Enepaq/Sony-Murata datasheet V-T table — confirm lookup table breakpoints (voltage at 0°C, 25°C, 45°C, 60°C, 80°C at minimum). Confirm bias current calculation with 680 Ω and LTC6812 GPIO drive.
-> **OPEN QUESTION:** Maximum number of sensors that can be biased simultaneously (thermal/power budget of 680 Ω resistors).
+> **RESOLVED:** V-T table populated from Sony-Murata NTC Table 5 — 33 breakpoints, −40°C to +120°C, 2440 mV to 1300 mV. Implemented in `firmware/src/bms/bms_measurements.c` as `k_enepaq_vt[]`.
+> **OPEN QUESTION:** Maximum number of sensors that can be biased simultaneously (thermal/power budget of bias resistors). Current firmware biases all 75 simultaneously; verify power/thermal budget on hardware.
 
 ---
 
@@ -175,12 +175,12 @@ S outputs must be cleared on success and on every failure/error path.
 | Vpack | Load side / precharge bus | PA1 ADC (12-bit, 3.3V ref) | Scaled by external resistor divider; calibrated in config |
 
 **ISL28022 configuration:**
-- I2C address: 0x40 | (A1 << 1) | A0 — **OPEN QUESTION: confirm pin strap from board**
-- Shunt resistor: CSM2F-8518 series (confirm resistance value from datasheet — OPEN QUESTION)
-- Register 0x00 (Configuration): set V_bus range, shunt gain, averaging, continuous mode
-- Register 0x01 (Shunt Voltage): signed 16-bit, 10 µV/LSB
-- Register 0x02 (Bus Voltage): unsigned 16-bit, 4 mV/LSB (shift right 3), ready bit in bit 1
-- I2C rate: 400 kHz
+- I2C address: 0x40 (A0 and A1 unconnected = pulled low = default address). **Verify on board before first I2C test** (HV-4).
+- Shunt resistor: CSM2F-8518-L100J01, 0.1 mΩ (0.0001 Ω). Current path includes AMC1302 isolation amplifier; full current scaling requires calibration (see `current_gain_x1000` in config).
+- Register 0x00 (Configuration): V_bus 60V range, PGA/8 (±320 mV shunt), 12-bit continuous mode.
+- Register 0x01 (Shunt Voltage): signed 16-bit, 80 µV/LSB with PGA=/8 (firmware setting). Calibration register set to 0 — raw shunt voltage returned; scaling applied in `bms_measurements.c`.
+- Register 0x02 (Bus Voltage): unsigned 16-bit, 4 mV/LSB (right-shift 3). Vbat = Vbus_reading × ~38.93 (front-end gain from OPA2197 conditioning, Voutmax ≈ 11.56 V at Vinmax = 450 V). Scaling constant stored in `vbat_gain_x1000` config field; requires board calibration.
+- I2C rate: 100 kHz standard mode (conservative for bring-up; 4.75 kΩ external pull-ups).
 
 **PA1 Vpack ADC:**
 - STM32F303 ADC1 channel 2 (PA1)
@@ -211,14 +211,18 @@ Firmware must **never** use Vbat as Vpack or vice versa. Invalid Vbat or invalid
 
 These outputs feed into the downstream shutdown/interlock circuit, not directly into contactor coils.
 
-| Signal | Pin | Meaning when ASSERTED | Safe (de-asserted) state |
-|---|---|---|---|
-| MASTER_OK | PB11 | BMS is healthy and operating; system may proceed | De-asserted = system must open/hold contactors |
-| DISCHARGE_PERM | PB10 | Discharge operation is permitted by BMS | De-asserted = discharge prohibited |
-| CHARGE_PERM | PB0 | Charge operation is permitted by BMS | De-asserted = charge prohibited |
-| CHARGER_SAFETY | PB2 | Charger may safely apply voltage | De-asserted = charger must inhibit |
+| Signal | Pin | Meaning when ASSERTED | MCU pin level | Safe (de-asserted) state |
+|---|---|---|---|---|
+| MASTER_OK | PB11 | BMS is healthy and operating; system may proceed | HIGH | MCU LOW → downstream HIGH (inactive) |
+| DISCHARGE_PERM | PB10 | Discharge operation is permitted by BMS | HIGH | MCU LOW → downstream HIGH (inactive) |
+| CHARGE_PERM | PB0 | Charge operation is permitted by BMS | HIGH | MCU LOW → downstream HIGH (inactive) |
+| CHARGER_SAFETY | PB2 | Charger may safely apply voltage | HIGH | MCU LOW → downstream HIGH (inactive) |
 
-> **OPEN QUESTION:** Active polarity — confirm whether ASSERTED = GPIO HIGH or GPIO LOW for each signal. Document in `board_outputs.c` as `OUTPUT_POLARITY_*` constants after schematic review.
+**Polarity confirmed (schematic reviewed):** All four outputs use an identical N-channel MOSFET stage.
+MCU HIGH → MOSFET on → drain pulled LOW → downstream active-low signal asserted.
+MCU LOW → MOSFET off → downstream pulled HIGH (via pull-up) → signal inactive (safe default).
+Implemented in `board_outputs.c`; safe state enforced by `board_outputs_init_safe()` at every reset.
+
 > **OPEN QUESTION:** Does MASTER_OK have watchdog / heartbeat implications on the downstream circuit?
 
 **Rule:** After reset, all outputs must be in the safe (de-asserted) state. The `board_outputs` BSP layer owns the polarity mapping. The rest of firmware uses logical `ASSERTED` / `DEASSERTED` enums.
@@ -305,9 +309,9 @@ These are assumed based on the hardware description and must be verified against
 |---|---|---|
 | HV-1 | isospi_reverse orientation for CELL chain | Cell-to-device mapping wrong; wrong cells reported/balanced |
 | HV-2 | isospi_reverse orientation for TEMP chain | Sensor-to-device mapping wrong |
-| HV-3 | Active polarity of all 4 permission GPIOs | Permissions inverted; safety-critical |
-| HV-4 | ISL28022 I2C address (A0/A1 pin state) | I2C communication fails |
-| HV-5 | CSM2F-8518 shunt resistance value | Current calibration wrong |
+| HV-3 | ~~Active polarity of all 4 permission GPIOs~~ **RESOLVED** — MCU HIGH = asserted via MOSFET; see §11 | — |
+| HV-4 | ISL28022 I2C address — A0/A1 unconnected assumed LOW → 0x40. **Verify on board with DMM before first isl28022_init() call.** | I2C communication fails |
+| HV-5 | CSM2F-8518-L100J01 shunt resistance confirmed 0.1 mΩ. AMC1302 gain and current scaling must be calibrated on bench. | Current reading wrong without calibration |
 | HV-6 | Vpack resistor divider ratio | Pack voltage reading wrong; precharge validation wrong |
 | HV-7 | POWER_ENABLE GPIO pin | Power latch fails |
 | HV-8 | POWER_BUTTON and CHARGE_DETECT GPIO pins | Wake detection fails |

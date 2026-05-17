@@ -19,9 +19,11 @@ static inline void gpio_clear_pin(GPIO_TypeDef *port, uint32_t pin) {
 }
 
 /* ── Output polarity encoding ─────────────────────────────────────────────── */
-/* For PB10/PB11: logical true (permission active) → MCU HIGH.
- * For PB0/PB2: polarity TBD (OQ-POL); currently logical true → MCU HIGH.
- * For PB5: logical true (power latched) → MCU HIGH. */
+/* All four permission outputs (PB10/PB11/PB0/PB2) use the same MOSFET stage:
+ *   MCU HIGH → MOSFET on → drain pulled LOW → downstream active-low signal asserted.
+ *   MCU LOW  → MOSFET off → downstream pulled HIGH → signal inactive (safe default).
+ * Logical true (permission active) maps to MCU HIGH for all four outputs.
+ * PB5 (PowerEnable): MCU HIGH = power latch held. */
 static inline void perm_output_set(GPIO_TypeDef *port, uint32_t pin, bool active) {
     if (active) {
         gpio_set_pin(port, pin);
@@ -70,7 +72,6 @@ void board_outputs_set_discharge_permission(bool allowed) {
 }
 
 void board_outputs_set_charge_permission(bool allowed) {
-    /* OQ-POL: confirm active polarity of Charge_enabled before hardware test */
     perm_output_set(OUTPUT_PORT_B, PIN_CHARGE_ENABLE, allowed);
     if (allowed) {
         s_state |= OUTPUTS_BIT_CHARGE;
@@ -80,7 +81,6 @@ void board_outputs_set_charge_permission(bool allowed) {
 }
 
 void board_outputs_set_charger_safety(bool allowed) {
-    /* OQ-POL: confirm active polarity of Charger_Safety before hardware test */
     perm_output_set(OUTPUT_PORT_B, PIN_CHARGER_SAFETY, allowed);
     if (allowed) {
         s_state |= OUTPUTS_BIT_CHARGER_SAFETY;

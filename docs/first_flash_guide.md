@@ -325,7 +325,7 @@ Only run after ISL28022 probe passes.
 
 1. Verify ST-Link is recognised by the host: `STM32_Programmer_CLI -l` should list the probe.
 2. Check SWD wiring: SWDIO → PA13, SWDCK → PA14, GND shared, VCC 3.3V reference.
-3. Check BOOT0 (PB8) is pulled LOW (normal boot mode). HIGH = system bootloader.
+3. Check BOOT0 is pulled LOW (normal boot mode). HIGH = system bootloader.
 4. Check NRST is not held low by an external circuit.
 5. Try lower SWD frequency: add `freq=1000` to the programmer command.
 6. If the MCU is in a hard-fault loop, SWD may still work — try connect-under-reset:

@@ -29,8 +29,7 @@
 
 ### 1.3 Bench Supply Setup
 
-- [ ] Bench supply is set to **3.3 V**, **current limit 200 mA** (or lower if board quiescent
-      current is known to be less).
+- [ ] Bench supply is set to **12V** into the power-supply subsystem
 - [ ] Bench supply output is **off** before connecting to the board.
 - [ ] Supply polarity confirmed by DMM before connecting.
 - [ ] GND reference is shared between bench supply, ST-Link, and UART adapter.
@@ -55,7 +54,7 @@
 
 ### 1.6 BOOT0 / Boot Mode
 
-- [ ] BOOT0 (PB8) is pulled **LOW** on the board for normal boot (boot from flash).
+- [ ] BOOT0 is pulled **LOW** on the board for normal boot (boot from flash).
       If BOOT0 is HIGH at reset, the MCU enters the factory system bootloader — this will
       appear as no BMS UART output.
 - [ ] If you need to use the system bootloader (e.g., USB DFU), this is a deliberate action;
@@ -117,9 +116,7 @@ Apply power. Wait 1 second. Perform these checks before sending any bmsctl comma
 
 ### 2.6 No Balancing Active
 
-- [ ] Cell balancing DCC outputs must not be active at first boot. Firmware sets all DCC
-      bits to 0 in `board_outputs_init_safe()` and does not enable balancing without an
-      explicit command.
+- [ ] Cell balancing DCC outputs must not be active at first boot. MCU permission outputs are set inactive by board_outputs_init_safe(). LTC6812 DCC balancing bits should remain zero at startup and must be explicitly cleared through the CELL-chain balance disable path once the CELL chain is available.
 - [ ] (With CELL chain connected) Measure any balancing resistor: no current should flow
       at idle.
 

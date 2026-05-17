@@ -1,4 +1,4 @@
-/* board_i2c.h — I2C2 stub for ISL28022 (PA9=SCL, PA10=SDA). */
+/* board_i2c.h — I2C2 driver for ISL28022 (PA9=SCL, PA10=SDA, AF4, 100 kHz). */
 #pragma once
 #include <stdint.h>
 #include "bms_types.h"

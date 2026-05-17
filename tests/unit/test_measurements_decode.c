@@ -127,8 +127,9 @@ void test_temp_cycle_clears_s_outputs_on_read_failure(void) {
     TEST_ASSERT_EQUAL_INT(1, mock_clear_s_calls);
 }
 
-void test_temp_cycle_enepaq_table_not_populated_all_invalid(void) {
-    /* ENEPAQ_TABLE_POPULATED=0 so all temps are TEMP_INVALID_CX10 */
+void test_temp_cycle_out_of_range_voltage_all_invalid(void) {
+    /* Default mock voltage is 3700 mV, which exceeds table max (2440 mV).
+     * All converted temperatures must be TEMP_INVALID_CX10. */
     bms_measurements_run_temp_cycle();
     const TempSnapshot *t = bms_measurements_get_temps();
     for (uint8_t i = 0; i < TOTAL_TEMP_COUNT; i++) {
@@ -136,7 +137,8 @@ void test_temp_cycle_enepaq_table_not_populated_all_invalid(void) {
     }
 }
 
-void test_temp_cycle_enepaq_not_populated_all_not_valid(void) {
+void test_temp_cycle_out_of_range_voltage_all_not_valid(void) {
+    /* Default mock voltage 3700 mV is out of range → all valid[] must be false. */
     bms_measurements_run_temp_cycle();
     const TempSnapshot *t = bms_measurements_get_temps();
     for (uint8_t i = 0; i < TOTAL_TEMP_COUNT; i++) {
@@ -277,8 +279,8 @@ int main(void) {
     RUN_TEST(test_temp_cycle_clears_s_outputs_on_success);
     RUN_TEST(test_temp_cycle_clears_s_outputs_on_bias_failure);
     RUN_TEST(test_temp_cycle_clears_s_outputs_on_read_failure);
-    RUN_TEST(test_temp_cycle_enepaq_table_not_populated_all_invalid);
-    RUN_TEST(test_temp_cycle_enepaq_not_populated_all_not_valid);
+    RUN_TEST(test_temp_cycle_out_of_range_voltage_all_invalid);
+    RUN_TEST(test_temp_cycle_out_of_range_voltage_all_not_valid);
     RUN_TEST(test_temp_cycle_overall_valid_after_ok_read);
     RUN_TEST(test_temp_cycle_pec_fail_overall_error);
     RUN_TEST(test_temp_cycle_pec_fail_reports_pec_error);
