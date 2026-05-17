@@ -112,7 +112,9 @@ for script in \
     scripts/demo_local.sh \
     scripts/validate_all.sh \
     scripts/build_firmware.sh \
-    scripts/package_release.sh
+    scripts/package_release.sh \
+    scripts/flash_stlink.sh \
+    scripts/first_flash_dry_run.sh
 do
     if [[ -f "$script" ]]; then
         _run "bash -n $script" bash -n "$script"
@@ -261,10 +263,31 @@ if [[ -n "$PYTHON" ]]; then
             _fail "package_release.sh ran but bundle structure is wrong"
             ls "$BUNDLE" 2>/dev/null | sed 's/^/    /' | head -10
         fi
+        # Check first-flash docs are in the bundle
+        if [[ -f "$BUNDLE/docs/first_flash_guide.md" && \
+              -f "$BUNDLE/docs/bench_safety_checklist.md" && \
+              -f "$BUNDLE/docs/uart_smoke_test.md" && \
+              -f "$BUNDLE/scripts/flash_stlink.sh" && \
+              -f "$BUNDLE/manifest.txt" ]]; then
+            _ok "bundle contains first-flash docs + flash_stlink.sh + manifest"
+        else
+            _fail "bundle missing first-flash docs or flash_stlink.sh or manifest.txt"
+        fi
     else
         _fail "package_release.sh"
         sed 's/^/    /' /tmp/validate_out.txt | head -20
     fi
+fi
+
+# ── Flash dry-run (smoke) ─────────────────────────────────────────────────────
+
+_header "Flash dry-run (smoke)"
+
+if [[ -f "build_firmware/firmware.bin" ]]; then
+    _run "flash_stlink.sh dry-run app" \
+        bash scripts/flash_stlink.sh --app build_firmware/firmware.bin
+else
+    _skip "flash dry-run (build_firmware/firmware.bin not present)"
 fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────

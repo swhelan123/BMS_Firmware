@@ -132,7 +132,7 @@ echo "==> Scripts"
 SCRIPTS_DEST="$BUNDLE_DIR/scripts"
 mkdir -p "$SCRIPTS_DEST"
 
-for script in setup_dev_env.sh run_gui.sh bmsctl.sh demo_local.sh build_firmware.sh; do
+for script in setup_dev_env.sh run_gui.sh bmsctl.sh demo_local.sh build_firmware.sh flash_stlink.sh validate_all.sh first_flash_dry_run.sh; do
     src="$REPO_ROOT/scripts/$script"
     if [[ -f "$src" ]]; then
         cp "$src" "$SCRIPTS_DEST/$script"
@@ -203,12 +203,28 @@ $BUNDLE_NAME/
   firmware/           ELF, .bin, .hex, .map${HAVE_FIRMWARE:+, .pkg}
   tool/               Python source (CLI + GUI + tests)
   scripts/            setup_dev_env.sh, run_gui.sh, bmsctl.sh, demo_local.sh
-  docs/               Design documents
+                      flash_stlink.sh, validate_all.sh, first_flash_dry_run.sh
+  docs/               Design documents + first_flash_guide + bench_safety_checklist
+                      + uart_smoke_test
   README.md
+  manifest.txt        Full file listing with sizes
   release_notes.md    This file
 \`\`\`
 
-## Quick Start
+## First-Flash Preparation
+
+\`\`\`bash
+cd $BUNDLE_NAME/
+./scripts/setup_dev_env.sh              # install Python deps
+./scripts/validate_all.sh --no-firmware # verify tool stack (no arm toolchain needed)
+./scripts/first_flash_dry_run.sh        # dry-run flash command + release package
+
+# Read before connecting hardware:
+cat docs/bench_safety_checklist.md
+cat docs/first_flash_guide.md
+\`\`\`
+
+## Quick Start (simulation only)
 
 \`\`\`bash
 cd $BUNDLE_NAME/
@@ -225,6 +241,26 @@ $GIT_LOG
 EOF
 
 echo "    ✓  release_notes.md"
+
+# ── Manifest ──────────────────────────────────────────────────────────────────
+
+echo
+echo "==> Manifest"
+
+{
+    echo "# BMS Release Manifest — $VERSION"
+    echo "# Generated: $(date -u '+%Y-%m-%d %H:%M UTC')"
+    echo "#"
+    echo "# format: <size_bytes>  <path>"
+    echo ""
+    find "$BUNDLE_DIR" -type f | sort | while read -r f; do
+        size="$(wc -c < "$f" | tr -d ' ')"
+        rel="${f#$BUNDLE_DIR/}"
+        printf "%8s  %s\n" "$size" "$rel"
+    done
+} > "$BUNDLE_DIR/manifest.txt"
+
+echo "    ✓  manifest.txt  ($(wc -l < "$BUNDLE_DIR/manifest.txt") entries)"
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 

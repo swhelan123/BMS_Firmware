@@ -62,13 +62,15 @@ BMS_Firmware/
 │   ├── mock_bsp/           Mock SPI/UART/outputs/clock/flash
 │   └── vendor/unity/
 ├── scripts/
-│   ├── setup_dev_env.sh    One-command dev environment setup
-│   ├── validate_all.sh     One-command full validation
-│   ├── demo_local.sh       Full stack demo (fake target, CLI, optional GUI)
-│   ├── run_gui.sh          Launch GUI (with optional fake target)
-│   ├── bmsctl.sh           CLI wrapper (activates .venv)
-│   ├── build_firmware.sh   STM32 firmware build
-│   └── package_release.sh  Create dist/ release bundle
+│   ├── setup_dev_env.sh        One-command dev environment setup
+│   ├── validate_all.sh         One-command full validation
+│   ├── demo_local.sh           Full stack demo (fake target, CLI, optional GUI)
+│   ├── run_gui.sh              Launch GUI (with optional fake target)
+│   ├── bmsctl.sh               CLI wrapper (activates .venv)
+│   ├── build_firmware.sh       STM32 firmware build
+│   ├── flash_stlink.sh         Dry-run and real flash via ST-Link (--execute required)
+│   ├── first_flash_dry_run.sh  Pre-hardware readiness check (no flash)
+│   └── package_release.sh      Create dist/ release bundle
 ├── protocol/               Protocol specification documents
 ├── docs/                   Design documents (hardware contract, safety model, etc.)
 └── build_firmware/         CMake build output (gitignored)
@@ -241,6 +243,61 @@ Self-test (all modes):
 
 ---
 
+## First-Flash Preparation
+
+> **No hardware has been flashed yet.** The firmware has been validated in simulation only.
+> Read the documents listed below before connecting any hardware.
+
+```bash
+# 1. Validate the full software stack (no hardware required)
+./scripts/validate_all.sh --no-firmware
+
+# 2. Build firmware (requires arm-none-eabi-gcc)
+export PATH="/Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/bin:$PATH"
+./scripts/build_firmware.sh
+
+# 3. Run the first-flash readiness check (dry-run only, no real flash)
+./scripts/first_flash_dry_run.sh
+
+# 4. Read before connecting hardware (in order):
+#    docs/bench_safety_checklist.md
+#    docs/first_flash_guide.md
+#    docs/uart_smoke_test.md
+#    docs/01_hardware_contract.md  (especially §16 hardware validation questions)
+```
+
+Flash command (after safety checklist is complete):
+
+```bash
+# Dry-run first — prints exact command, does not flash
+./scripts/flash_stlink.sh --app build_firmware/firmware.bin
+
+# Real flash — requires --execute
+./scripts/flash_stlink.sh --app build_firmware/firmware.bin --execute
+```
+
+First CLI session after flash:
+
+```bash
+PORT=/dev/tty.usbserial-XXXX   # find with: ls /dev/tty.usbserial-*
+./scripts/bmsctl.sh connect    --serial $PORT
+./scripts/bmsctl.sh diagnostics --serial $PORT
+./scripts/bmsctl.sh diag gpio   --serial $PORT
+./scripts/bmsctl.sh diag outputs --serial $PORT
+```
+
+### First-Flash Documents
+
+| Document | Read when |
+|----------|-----------|
+| `docs/bench_safety_checklist.md` | Before applying power to the board |
+| `docs/first_flash_guide.md` | Full first-flash procedure with pass/fail checklist |
+| `docs/uart_smoke_test.md` | Diagnosing serial / protocol connection issues |
+| `docs/01_hardware_contract.md` | Pin table, isoSPI topology, open hardware questions |
+| `docs/02_safety_model.md` | Permission output semantics and safety invariants |
+
+---
+
 ## Package Release
 
 ```bash
@@ -248,8 +305,9 @@ Self-test (all modes):
 ```
 
 Creates `dist/bms-v{VERSION}/` containing firmware artifacts, Python tool source,
-scripts, docs, and auto-generated release notes. No `.venv`, `__pycache__`, or
-build caches are included.
+scripts (including `flash_stlink.sh` and `first_flash_dry_run.sh`), docs (including all
+first-flash guides), and auto-generated release notes and manifest. No `.venv`,
+`__pycache__`, or build caches are included.
 
 ---
 
