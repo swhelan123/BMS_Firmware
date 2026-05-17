@@ -10,8 +10,8 @@ from ...connection.device_state import DeviceMode
 
 
 class ConnectionPage(QWidget):
-    connect_requested        = pyqtSignal(str, int)  # host, port  (TCP)
-    connect_serial_requested = pyqtSignal(str, int)  # device, baud
+    connect_requested        = pyqtSignal(str, int)   # host, port (TCP)
+    connect_serial_requested = pyqtSignal(str, int)   # device, baud
     disconnect_requested     = pyqtSignal()
 
     def __init__(self, state: AppState, parent=None):
@@ -21,9 +21,10 @@ class ConnectionPage(QWidget):
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
 
         # ── TCP group ────────────────────────────────────────────────────────
-        tcp_grp = QGroupBox("TCP Connection (fake target)")
+        tcp_grp = QGroupBox("TCP Connection (fake target / simulator)")
         tcp_lay = QHBoxLayout(tcp_grp)
 
         tcp_lay.addWidget(QLabel("Host:"))
@@ -41,7 +42,6 @@ class ConnectionPage(QWidget):
         self._connect_tcp_btn = QPushButton("Connect TCP")
         self._connect_tcp_btn.clicked.connect(self._on_connect_tcp)
         tcp_lay.addWidget(self._connect_tcp_btn)
-
         tcp_lay.addStretch()
         layout.addWidget(tcp_grp)
 
@@ -52,9 +52,8 @@ class ConnectionPage(QWidget):
         ser_lay.addWidget(QLabel("Port:"))
         self._serial_combo = QComboBox()
         self._serial_combo.setEditable(True)
-        self._serial_combo.setMinimumWidth(160)
-        self._serial_combo.addItems(
-            ["/dev/tty.usbmodem*", "/dev/ttyUSB0", "COM3"])
+        self._serial_combo.setMinimumWidth(180)
+        self._serial_combo.addItems(["/dev/tty.usbserial-*", "/dev/ttyUSB0", "COM3"])
         self._serial_combo.setCurrentText("")
         ser_lay.addWidget(self._serial_combo)
 
@@ -68,7 +67,6 @@ class ConnectionPage(QWidget):
         self._connect_ser_btn = QPushButton("Connect Serial")
         self._connect_ser_btn.clicked.connect(self._on_connect_serial)
         ser_lay.addWidget(self._connect_ser_btn)
-
         ser_lay.addStretch()
         layout.addWidget(ser_grp)
 
@@ -81,24 +79,34 @@ class ConnectionPage(QWidget):
         dc_lay.addStretch()
         layout.addLayout(dc_lay)
 
-        # ── Fake-target helper ───────────────────────────────────────────────
-        hint_grp = QGroupBox("Fake Target — Quick Start")
+        # ── Quick-start hints ─────────────────────────────────────────────────
+        hint_grp = QGroupBox("Quick Start — Fake Target Commands")
         hint_lay = QVBoxLayout(hint_grp)
         hint_lay.addWidget(QLabel(
-            "Start a fake BMS target in a terminal, then connect via TCP above:"))
+            "Run one of these in a terminal, then connect via TCP (port 65102):"))
         hint_cmds = [
-            "python -m tool.src.fake_target.fake_target --mode healthy",
-            "python -m tool.src.fake_target.fake_target --mode openwire_detected",
-            "python -m tool.src.fake_target.fake_target --mode cell_uv",
-            "python -m tool.src.fake_target.fake_target --mode bootloader",
+            ("Static healthy (port 65102):",
+             "./scripts/bmsctl.sh fake-target run --mode healthy"),
+            ("Static open-wire (port 65102):",
+             "./scripts/bmsctl.sh fake-target run --mode openwire_detected"),
+            ("Live drive simulation (port 65103):",
+             "./scripts/run_fake_hardware.sh --mode drive"),
+            ("GUI with auto-connect (healthy):",
+             "./scripts/run_gui.sh --fake --mode healthy"),
         ]
-        for cmd in hint_cmds:
-            lbl = QLabel(f"  {cmd}")
-            lbl.setStyleSheet("font-family: monospace; color: #555;")
-            hint_lay.addWidget(lbl)
+        for desc, cmd in hint_cmds:
+            row = QHBoxLayout()
+            desc_lbl = QLabel(desc)
+            desc_lbl.setFixedWidth(230)
+            cmd_lbl  = QLabel(cmd)
+            cmd_lbl.setStyleSheet("font-family: monospace; color: #333;")
+            row.addWidget(desc_lbl)
+            row.addWidget(cmd_lbl)
+            row.addStretch()
+            hint_lay.addLayout(row)
         layout.addWidget(hint_grp)
 
-        # ── Status group ─────────────────────────────────────────────────────
+        # ── Device status ────────────────────────────────────────────────────
         status_grp = QGroupBox("Device Status")
         status_lay = QVBoxLayout(status_grp)
 
@@ -106,9 +114,9 @@ class ConnectionPage(QWidget):
         self._fw_label    = QLabel("Firmware: —")
         self._hw_label    = QLabel("HW Profile: —")
         self._proto_label = QLabel("Protocol: —")
-        self._cells_label = QLabel("Cells/Temps: —")
+        self._cells_label = QLabel("Cells / Temps: —")
         self._error_label = QLabel("")
-        self._error_label.setStyleSheet("color: red;")
+        self._error_label.setStyleSheet("color: #8a0000; font-weight:bold;")
 
         for w in (self._mode_label, self._fw_label, self._hw_label,
                   self._proto_label, self._cells_label, self._error_label):
@@ -145,9 +153,9 @@ class ConnectionPage(QWidget):
         self._error_label.setText(d.error_msg or "")
 
         if caps:
+            fw_ver = '.'.join(str(x) for x in caps.firmware_version)
             self._fw_label.setText(
-                f"Firmware: v{'.'.join(str(x) for x in caps.firmware_version)}  "
-                f"(type 0x{caps.firmware_type:04X})")
+                f"Firmware: v{fw_ver}  (type 0x{caps.firmware_type:04X})")
             self._hw_label.setText(f"HW Profile: 0x{caps.hw_profile_id:04X}")
             self._proto_label.setText(f"Protocol: v{caps.protocol_version}")
             self._cells_label.setText(

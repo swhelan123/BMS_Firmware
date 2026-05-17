@@ -24,14 +24,28 @@ class BringupPage(QWidget):
         scroll.setWidgetResizable(True)
         inner  = QWidget()
         layout = QVBoxLayout(inner)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
         scroll.setWidget(inner)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(scroll)
 
+        # ── Mode notice (shown in non-APP mode) ───────────────────────────────
+        self._mode_notice = QLabel(
+            "Bring-up actions require BMS_APP mode.")
+        self._mode_notice.setStyleSheet(
+            "color:#9a6000; font-weight:bold; font-size:12px; "
+            "padding:6px 10px; background:#fff8e6; border:1px solid #d4a800; "
+            "border-radius:4px;")
+        self._mode_notice.setWordWrap(True)
+        self._mode_notice.setVisible(False)
+        layout.addWidget(self._mode_notice)
+
         # ── Diagnostics counters ──────────────────────────────────────────────
         diag_grp  = QGroupBox("Diagnostics Counters")
         diag_grid = QGridLayout(diag_grp)
+        diag_grid.setColumnMinimumWidth(0, 160)
 
         def drow(label: str, r: int) -> QLabel:
             diag_grid.addWidget(
@@ -59,6 +73,7 @@ class BringupPage(QWidget):
         # ── GPIO / Outputs snapshot ───────────────────────────────────────────
         gpio_grp  = QGroupBox("GPIO & Outputs Snapshot")
         gpio_grid = QGridLayout(gpio_grp)
+        gpio_grid.setColumnMinimumWidth(0, 160)
 
         def grow(label: str, r: int) -> QLabel:
             gpio_grid.addWidget(
@@ -165,9 +180,9 @@ class BringupPage(QWidget):
         self._bal_disable_btn   = QPushButton("Balance Disable-All")
         self._clear_latched_btn = QPushButton("Clear Latched Faults")
         self._bal_disable_btn.setStyleSheet(
-            "background-color: #c60; color: white; font-weight: bold;")
+            "background-color:#b87000; color:white; font-weight:bold;")
         self._clear_latched_btn.setStyleSheet(
-            "background-color: #c00; color: white; font-weight: bold;")
+            "background-color:#8a0000; color:white; font-weight:bold;")
         safety_lay.addWidget(self._bal_disable_btn)
         safety_lay.addWidget(self._clear_latched_btn)
         safety_lay.addStretch()
@@ -311,10 +326,7 @@ class BringupPage(QWidget):
                 if r['open_wire_mask'][i // 8] & (1 << (i % 8))
             ]
             lines = [f"status={r['status']}  detected={len(detected)} cells"]
-            if detected:
-                lines.append(f"  open cells: {detected}")
-            else:
-                lines.append("  all wires OK")
+            lines.append("  open cells: " + str(detected) if detected else "  all wires OK")
             return '\n'.join(lines)
         self._ow_out.clear()
         self._run(_do, self._ow_out)
@@ -343,10 +355,24 @@ class BringupPage(QWidget):
 
     def refresh(self, state: AppState) -> None:
         from ...connection.device_state import DeviceMode
-        is_app = (state.device.mode == DeviceMode.BMS_APP)
+        mode   = state.device.mode
+        is_app = (mode == DeviceMode.BMS_APP)
 
         for btn in self._all_action_btns:
             btn.setEnabled(is_app)
+
+        if not is_app:
+            notice_text = "Bring-up actions require BMS_APP mode."
+            if mode == DeviceMode.BOOTLOADER:
+                notice_text = (
+                    "Bring-up actions require BMS_APP mode.  "
+                    "Current mode: BOOTLOADER.")
+            elif mode == DeviceMode.DISCONNECTED:
+                notice_text = "Bring-up actions require BMS_APP mode.  Not connected."
+            self._mode_notice.setText(notice_text)
+            self._mode_notice.setVisible(True)
+        else:
+            self._mode_notice.setVisible(False)
 
         d = state.diagnostics
         if is_app and d.valid:

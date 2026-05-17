@@ -1,31 +1,20 @@
-"""main.py — BMS desktop tool GUI entry point.
-
-Install dependency:
-    pip install PyQt6
-
-Run:
-    python -m tool.src.gui.main
-    python -m tool.src.gui.main --fake --mode healthy
-    python -m tool.src.gui.main --fake --mode openwire_detected
-"""
+"""main.py — BMS desktop tool GUI entry point."""
 import sys
 import threading
 from typing import Optional
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QTabWidget, QWidget,
-    QStatusBar, QLabel, QVBoxLayout,
+    QLabel, QVBoxLayout, QHBoxLayout,
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject
-from PyQt6.QtGui import QIcon
+from PyQt6.QtCore import Qt, pyqtSignal, QObject
 
 from ..core.app_state import AppState
 from ..core.connection_manager import ConnectionManager
-from ..core.target_model import TargetModel, TargetRefusedError
+from ..core.target_model import TargetModel
 from ..core.polling import PollingLoop
 from ..core.logging_model import EventLog, PacketLog
 from ..connection.device_state import DeviceState, DeviceMode
-from ..protocol.client import ProtocolError
 
 from .pages.connection import ConnectionPage
 from .pages.bringup import BringupPage
@@ -36,18 +25,19 @@ from .pages.faults import FaultsPage
 from .pages.config import ConfigPage
 from .pages.firmware_flash import FirmwareFlashPage
 from .pages.logs import LogsPage
+from .style import mode_badge_style, APP_STYLESHEET
 
 
 class _StateSignals(QObject):
-    """Signals emitted on the polling thread; Qt delivers them to the main thread."""
-    updated = pyqtSignal(str)  # key: 'device', 'values', 'cells', etc.
+    """Cross-thread state-change delivery: polling thread → main thread."""
+    updated = pyqtSignal(str)
 
 
 class BmsMainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("BMS Tool")
-        self.resize(1200, 800)
+        self.resize(1280, 820)
 
         self._state    = AppState()
         self._conn_mgr = ConnectionManager()
@@ -64,18 +54,51 @@ class BmsMainWindow(QMainWindow):
     # ── UI construction ───────────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
+        root = QWidget()
+        root_lay = QVBoxLayout(root)
+        root_lay.setContentsMargins(0, 0, 0, 0)
+        root_lay.setSpacing(0)
+
+        # ── Top status banner ─────────────────────────────────────────────────
+        self._banner = QWidget()
+        self._banner.setFixedHeight(34)
+        self._banner.setAutoFillBackground(True)
+        banner_lay = QHBoxLayout(self._banner)
+        banner_lay.setContentsMargins(10, 0, 10, 0)
+
+        self._mode_badge = QLabel("DISCONNECTED")
+        self._mode_badge.setStyleSheet(mode_badge_style('DISCONNECTED'))
+        banner_lay.addWidget(self._mode_badge)
+        banner_lay.addSpacing(12)
+
+        self._banner_info = QLabel("")
+        banner_lay.addWidget(self._banner_info)
+        banner_lay.addStretch()
+
+        self._banner_warn = QLabel("")
+        self._banner_warn.setStyleSheet(
+            "color:#ffffff; font-weight:bold; background:#9a6000; "
+            "padding:2px 10px; border-radius:3px;")
+        self._banner_warn.setVisible(False)
+        banner_lay.addWidget(self._banner_warn)
+
+        self._banner.setStyleSheet("background:#333333;")
+        self._banner_info.setStyleSheet("color:#cccccc; font-size:12px;")
+        root_lay.addWidget(self._banner)
+
+        # ── Tab widget ────────────────────────────────────────────────────────
         tabs = QTabWidget()
         self._tabs = tabs
 
-        self._page_conn   = ConnectionPage(self._state, self)
+        self._page_conn    = ConnectionPage(self._state, self)
         self._page_bringup = BringupPage(self._state, self)
-        self._page_dash   = DashboardPage(self._state)
-        self._page_cells  = CellsPage(self._state)
-        self._page_temps  = TemperaturesPage(self._state)
-        self._page_fault  = FaultsPage(self._state, self)
-        self._page_cfg    = ConfigPage(self._state, self)
-        self._page_flash  = FirmwareFlashPage(self._state, self)
-        self._page_logs   = LogsPage(self._evt_log, self._pkt_log)
+        self._page_dash    = DashboardPage(self._state)
+        self._page_cells   = CellsPage(self._state)
+        self._page_temps   = TemperaturesPage(self._state)
+        self._page_fault   = FaultsPage(self._state, self)
+        self._page_cfg     = ConfigPage(self._state, self)
+        self._page_flash   = FirmwareFlashPage(self._state, self)
+        self._page_logs    = LogsPage(self._evt_log, self._pkt_log)
 
         tabs.addTab(self._page_conn,    "Connection")
         tabs.addTab(self._page_bringup, "Bring-Up")
@@ -87,35 +110,56 @@ class BmsMainWindow(QMainWindow):
         tabs.addTab(self._page_flash,   "Firmware Flash")
         tabs.addTab(self._page_logs,    "Logs")
 
-        self.setCentralWidget(tabs)
-
-        bar = self.statusBar()
-        self._status_label = QLabel("Disconnected")
-        bar.addWidget(self._status_label)
+        root_lay.addWidget(tabs, 1)
+        self.setCentralWidget(root)
 
         # ── Signal wiring ─────────────────────────────────────────────────────
-        self._page_conn.connect_requested.connect(
-            self._on_connect_tcp_requested)
-        self._page_conn.connect_serial_requested.connect(
-            self._on_connect_serial_requested)
+        self._page_conn.connect_requested.connect(self._on_connect_tcp_requested)
+        self._page_conn.connect_serial_requested.connect(self._on_connect_serial_requested)
         self._page_conn.disconnect_requested.connect(self._on_disconnect)
 
         self._page_fault.clear_latched_requested.connect(self._on_clear_latched)
         self._page_fault.refresh_requested.connect(self._on_refresh_faults)
 
         self._page_dash.polling_toggle_requested.connect(self._on_polling_toggle)
-        self._page_dash.refresh_now_requested.connect(   self._on_refresh_now)
+        self._page_dash.refresh_now_requested.connect(self._on_refresh_now)
 
         self._page_cells.measure_once_requested.connect(self._on_measure_cells_once)
-        self._page_cells.refresh_requested.connect(     self._on_refresh_cells)
+        self._page_cells.refresh_requested.connect(self._on_refresh_cells)
 
         self._page_temps.measure_once_requested.connect(self._on_measure_temps_once)
-        self._page_temps.refresh_requested.connect(     self._on_refresh_temps)
+        self._page_temps.refresh_requested.connect(self._on_refresh_temps)
+
+    # ── Banner update ─────────────────────────────────────────────────────────
+
+    def _update_banner(self, device: DeviceState) -> None:
+        mode_name = device.mode.name
+        self._mode_badge.setText(mode_name)
+        self._mode_badge.setStyleSheet(mode_badge_style(mode_name))
+
+        caps = device.capabilities
+        if caps:
+            fw_ver = '.'.join(str(x) for x in caps.firmware_version)
+            info = (
+                f"FW v{fw_ver}  |  "
+                f"HW 0x{caps.hw_profile_id:04X}  |  "
+                f"{caps.cell_count} cells / {caps.temp_count} temps"
+            )
+            if device.error_msg:
+                info += f"  |  {device.error_msg}"
+            self._banner_info.setText(info)
+        else:
+            self._banner_info.setText(device.error_msg or "")
+
+        is_bl = (device.mode == DeviceMode.BOOTLOADER)
+        self._banner_warn.setVisible(is_bl)
+        if is_bl:
+            self._banner_warn.setText(
+                "BOOTLOADER MODE — runtime telemetry disabled, firmware update only")
 
     # ── Connect helpers ───────────────────────────────────────────────────────
 
     def _finish_connect(self, transport) -> None:
-        """Common post-transport-open setup."""
         self._model  = TargetModel(transport)
         device       = self._model.capabilities_handshake()
         self._state.update_device(device)
@@ -132,7 +176,6 @@ class BmsMainWindow(QMainWindow):
             transport = self._conn_mgr.connect_tcp(host, port)
         except (OSError, IOError) as e:
             self._evt_log.append(f"TCP connection failed: {e}")
-            self._status_label.setText(f"Error: {e}")
             self._page_conn.refresh(self._state)
             return
         self._finish_connect(transport)
@@ -143,7 +186,6 @@ class BmsMainWindow(QMainWindow):
             transport = self._conn_mgr.connect_serial(device, baud)
         except Exception as e:
             self._evt_log.append(f"Serial connection failed: {e}")
-            self._status_label.setText(f"Error: {e}")
             self._page_conn.refresh(self._state)
             return
         self._finish_connect(transport)
@@ -182,13 +224,12 @@ class BmsMainWindow(QMainWindow):
 
     def _on_polling_toggle(self) -> None:
         if self._polling is None:
-            return
-        if self._polling.running:
+            if self._model and self._state.device.mode == DeviceMode.BMS_APP:
+                self._polling = PollingLoop(self._model, self._state, self._evt_log)
+                self._polling.start()
+        else:
             self._polling.stop()
             self._polling = None
-        else:
-            self._polling = PollingLoop(self._model, self._state, self._evt_log)
-            self._polling.start()
 
     def _on_refresh_now(self) -> None:
         if self._model is None:
@@ -253,10 +294,17 @@ class BmsMainWindow(QMainWindow):
     def _on_state_updated(self, key: str) -> None:
         """Called on the main thread whenever AppState changes."""
         device = self._state.device
+
         if key == 'device':
-            mode_txt = device.mode.name
-            err = f" — {device.error_msg}" if device.error_msg else ""
-            self._status_label.setText(f"{mode_txt}{err}")
+            # Stop polling immediately when leaving BMS_APP mode.
+            # This prevents TargetRefusedError spam in the event log when the
+            # device enters BOOTLOADER mode or disconnects.
+            if device.mode != DeviceMode.BMS_APP and self._polling is not None:
+                self._polling.stop()
+                self._polling = None
+                self._page_dash.set_polling_active(False)
+
+            self._update_banner(device)
             self._page_conn.refresh(self._state)
 
         self._page_bringup.refresh(self._state)
@@ -268,13 +316,12 @@ class BmsMainWindow(QMainWindow):
         self._page_flash.refresh(self._state)
         self._page_logs.refresh()
 
-        # Tab enable/disable by mode
+        # Tab indices: 0=Connection, 1=Bring-Up, 2=Dashboard, 3=Cells,
+        #              4=Temps, 5=Faults, 6=Config, 7=Firmware Flash, 8=Logs
         is_app = (device.mode == DeviceMode.BMS_APP)
         is_bl  = (device.mode == DeviceMode.BOOTLOADER)
         is_any = is_app or is_bl
 
-        # Tab indices: 0=Connection, 1=Bring-Up, 2=Dashboard, 3=Cells,
-        #              4=Temps, 5=Faults, 6=Config, 7=Firmware Flash, 8=Logs
         tab_enabled = [
             True,    # Connection: always
             is_any,  # Bring-Up: app or bootloader
@@ -305,6 +352,7 @@ def main(argv=None) -> int:
 
     app = QApplication(sys.argv[:1] + qt_args)
     app.setApplicationName("BMS Tool")
+    app.setStyleSheet(APP_STYLESHEET)
 
     if args.fake:
         from ..fake_target.fake_target import FakeTarget
@@ -319,7 +367,7 @@ def main(argv=None) -> int:
 
     if args.fake:
         import time
-        time.sleep(0.1)  # allow server to start
+        time.sleep(0.1)
         win._on_connect_tcp_requested('127.0.0.1', 65102)
 
     return app.exec()

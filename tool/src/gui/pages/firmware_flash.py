@@ -1,4 +1,4 @@
-"""firmware_flash.py — Package selection, inspection, dry-run, execute, and protocol simulation."""
+"""firmware_flash.py — Package selection, inspection, dry-run, execute, protocol simulation."""
 import threading
 from pathlib import Path
 
@@ -17,7 +17,7 @@ from ...connection.device_state import DeviceMode
 
 
 class _SimSignals(QObject):
-    progress = pyqtSignal(int, int)  # chunks_done, total
+    progress = pyqtSignal(int, int)   # chunks_done, total
     log      = pyqtSignal(str)
     done     = pyqtSignal(bool, str)  # success, message
 
@@ -36,11 +36,20 @@ class FirmwareFlashPage(QWidget):
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
+
+        # ── Mode notice ───────────────────────────────────────────────────────
+        self._mode_lbl = QLabel("")
+        self._mode_lbl.setWordWrap(True)
+        self._mode_lbl.setVisible(False)
+        layout.addWidget(self._mode_lbl)
 
         # ── Package selection ─────────────────────────────────────────────────
         sel_grp = QGroupBox("Package Selection")
         sel_lay = QHBoxLayout(sel_grp)
         self._path_lbl   = QLabel("No file selected.")
+        self._path_lbl.setStyleSheet("color:#666;")
         self._browse_btn = QPushButton("Browse…")
         self._browse_btn.clicked.connect(self._on_browse)
         sel_lay.addWidget(self._path_lbl, 1)
@@ -50,18 +59,22 @@ class FirmwareFlashPage(QWidget):
         # Package info
         self._info = QTextEdit()
         self._info.setReadOnly(True)
-        self._info.setMaximumHeight(150)
+        self._info.setMaximumHeight(140)
         self._info.setFontFamily("Courier")
         layout.addWidget(self._info)
 
-        # ── Actions ───────────────────────────────────────────────────────────
-        act_grp = QGroupBox("Actions")
+        # ── Package actions ───────────────────────────────────────────────────
+        act_grp = QGroupBox("Package Actions")
         act_lay = QHBoxLayout(act_grp)
         self._inspect_btn  = QPushButton("Inspect")
         self._validate_btn = QPushButton("Validate")
         self._dry_run_btn  = QPushButton("ST-Link Dry Run")
+        self._inspect_btn.setToolTip("Show package header details")
+        self._validate_btn.setToolTip("Verify package CRC and structure")
+        self._dry_run_btn.setToolTip("Print the ST-Link flash command without executing")
         for btn in (self._inspect_btn, self._validate_btn, self._dry_run_btn):
             act_lay.addWidget(btn)
+        act_lay.addStretch()
         layout.addWidget(act_grp)
 
         self._inspect_btn.clicked.connect( self._on_inspect)
@@ -72,18 +85,19 @@ class FirmwareFlashPage(QWidget):
         sim_grp = QGroupBox("Protocol Update Simulation (fake target / pre-hardware)")
         sim_lay = QVBoxLayout(sim_grp)
 
-        sim_note = QLabel(
-            "Simulates the OTA update protocol against the fake target.  "
-            "Enter Bootloader first, then run the simulation to test begin/chunk/finalize.")
-        sim_note.setWordWrap(True)
-        sim_note.setStyleSheet("color: #555;")
-        sim_lay.addWidget(sim_note)
+        self._sim_mode_lbl = QLabel(
+            "Connect to a fake target, then Enter Bootloader to run the simulation.")
+        self._sim_mode_lbl.setWordWrap(True)
+        self._sim_mode_lbl.setStyleSheet("color:#555; font-style:italic;")
+        sim_lay.addWidget(self._sim_mode_lbl)
 
         sim_btn_lay = QHBoxLayout()
         self._enter_bl_btn  = QPushButton("Enter Bootloader")
         self._run_sim_btn   = QPushButton("Run Simulation")
         self._abort_sim_btn = QPushButton("Abort Update")
         self._abort_sim_btn.setEnabled(False)
+
+        self._run_sim_btn.setToolTip("Select a firmware package first.")
         for btn in (self._enter_bl_btn, self._run_sim_btn, self._abort_sim_btn):
             sim_btn_lay.addWidget(btn)
         sim_btn_lay.addStretch()
@@ -92,21 +106,29 @@ class FirmwareFlashPage(QWidget):
         self._sim_progress = QProgressBar()
         self._sim_progress.setVisible(False)
         sim_lay.addWidget(self._sim_progress)
-
         layout.addWidget(sim_grp)
 
         self._enter_bl_btn.clicked.connect( self._on_enter_bootloader)
         self._run_sim_btn.clicked.connect(  self._on_run_simulation)
         self._abort_sim_btn.clicked.connect(self._on_abort_sim)
 
-        # ── Execute gate ──────────────────────────────────────────────────────
-        exec_grp = QGroupBox("Execute Flash (Hardware Required)")
+        # ── Hardware execute (safety gate) ────────────────────────────────────
+        exec_grp = QGroupBox("Execute Flash — Hardware Required")
+        exec_grp.setStyleSheet(
+            "QGroupBox { border:2px solid #8a0000; color:#8a0000; font-weight:bold; }")
         exec_lay = QVBoxLayout(exec_grp)
+        exec_note = QLabel(
+            "This flashes real hardware via ST-Link. "
+            "Only proceed after reviewing docs/bench_safety_checklist.md.")
+        exec_note.setWordWrap(True)
+        exec_note.setStyleSheet("color:#8a0000; font-style:italic;")
+        exec_lay.addWidget(exec_note)
         self._safety_check = QCheckBox(
             "I understand this will flash real hardware via ST-Link")
         self._execute_btn = QPushButton("Flash Hardware")
         self._execute_btn.setEnabled(False)
-        self._execute_btn.setStyleSheet("background-color: #c00; color: white;")
+        self._execute_btn.setStyleSheet(
+            "background-color:#8a0000; color:white; font-weight:bold;")
         self._safety_check.toggled.connect(self._execute_btn.setEnabled)
         exec_lay.addWidget(self._safety_check)
         exec_lay.addWidget(self._execute_btn)
@@ -118,8 +140,35 @@ class FirmwareFlashPage(QWidget):
     def refresh(self, state: AppState) -> None:
         is_app = (state.device.mode == DeviceMode.BMS_APP)
         is_bl  = (state.device.mode == DeviceMode.BOOTLOADER)
+
         self._enter_bl_btn.setEnabled(is_app)
-        self._run_sim_btn.setEnabled(is_bl and bool(self._pkg_path))
+
+        pkg_ready = bool(self._pkg_path)
+        self._run_sim_btn.setEnabled(is_bl and pkg_ready)
+        if is_bl and not pkg_ready:
+            self._run_sim_btn.setToolTip("Select a firmware package first.")
+        elif is_bl:
+            self._run_sim_btn.setToolTip("")
+
+        if is_bl:
+            self._sim_mode_lbl.setText(
+                "Device is in BOOTLOADER mode — ready for protocol update simulation.")
+            self._sim_mode_lbl.setStyleSheet("color:#2a6b2a; font-weight:bold;")
+            self._mode_lbl.setText(
+                "BOOTLOADER MODE — runtime telemetry disabled. "
+                "Select a package and run the simulation.")
+            self._mode_lbl.setStyleSheet(
+                "color:#9a6000; font-weight:bold; background:#fff8e6; "
+                "padding:6px 10px; border:1px solid #d4a800; border-radius:4px;")
+            self._mode_lbl.setVisible(True)
+        elif is_app:
+            self._sim_mode_lbl.setText(
+                "Connect to a fake target, then click Enter Bootloader "
+                "to transition to bootloader mode and run the simulation.")
+            self._sim_mode_lbl.setStyleSheet("color:#555; font-style:italic;")
+            self._mode_lbl.setVisible(False)
+        else:
+            self._mode_lbl.setVisible(False)
 
     def _append(self, text: str) -> None:
         self._info.append(text)
@@ -135,11 +184,12 @@ class FirmwareFlashPage(QWidget):
         if path:
             self._pkg_path = path
             self._path_lbl.setText(path)
+            self._path_lbl.setStyleSheet("")
             self._on_inspect()
-            # Update run-sim button state
-            model = getattr(self._main, '_model', None)
-            if model and model.device.mode == DeviceMode.BOOTLOADER:
+            state = getattr(self._main, '_state', None)
+            if state and state.device.mode == DeviceMode.BOOTLOADER:
                 self._run_sim_btn.setEnabled(True)
+                self._run_sim_btn.setToolTip("")
 
     def _on_inspect(self) -> None:
         if not self._pkg_path:
@@ -194,7 +244,6 @@ class FirmwareFlashPage(QWidget):
         self._clear()
         try:
             model.enter_bootloader()
-            # Re-run capabilities handshake so device state reflects BOOTLOADER
             device = model.capabilities_handshake()
             state_obj = getattr(self._main, '_state', None)
             if state_obj:
@@ -278,7 +327,9 @@ class FirmwareFlashPage(QWidget):
 
     def _on_sim_done(self, success: bool, msg: str) -> None:
         self._append(f"{'✓' if success else '✗'} {msg}")
-        self._run_sim_btn.setEnabled(True)
+        state = getattr(self._main, '_state', None)
+        is_bl = state and state.device.mode == DeviceMode.BOOTLOADER
+        self._run_sim_btn.setEnabled(bool(is_bl and self._pkg_path))
         self._abort_sim_btn.setEnabled(False)
         self._sim_progress.setVisible(False)
 
