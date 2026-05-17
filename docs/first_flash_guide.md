@@ -105,9 +105,10 @@ To package for transport or distribution:
 **Flash `firmware.bin` at address `0x08008000` only.**
 
 Do not flash to `0x08000000` (bootloader region) unless explicitly intending to update the
-bootloader. A bootloader does not exist yet as a separate artifact — the STM32 factory
-system bootloader is used for initial programming via SWD, and the BMS protocol-based
-bootloader updater handles in-field updates once the application is running.
+bootloader. A BMS bootloader now exists as a separate build artifact (`build_bootloader/bootloader.bin`),
+but it has **NOT been hardware-validated** — only unit-tested in host simulation.
+The STM32 factory system bootloader is sufficient for initial programming via SWD.
+See `bootloader/README.md` for the bootloader build and first-flash procedure.
 
 ### Flash command (dry-run first)
 

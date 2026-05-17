@@ -112,6 +112,7 @@ for script in \
     scripts/demo_local.sh \
     scripts/validate_all.sh \
     scripts/build_firmware.sh \
+    scripts/build_bootloader.sh \
     scripts/package_release.sh \
     scripts/flash_stlink.sh \
     scripts/first_flash_dry_run.sh
@@ -244,6 +245,22 @@ else
     if [[ -f "build_firmware/firmware.bin" ]]; then
         SIZE="$(wc -c < build_firmware/firmware.bin | tr -d ' ')"
         echo "    firmware.bin: ${SIZE} bytes"
+    fi
+fi
+
+# ── Bootloader build ──────────────────────────────────────────────────────────
+
+_header "Bootloader build (NOT hardware-validated)"
+
+if [[ "$SKIP_FIRMWARE" -eq 1 ]]; then
+    _skip "bootloader build (--no-firmware)"
+elif [[ "$HAS_ARM_GCC" -eq 0 ]]; then
+    _skip "bootloader build (no arm-none-eabi-gcc)"
+else
+    _run "bootloader build (STM32F303)" ./scripts/build_bootloader.sh
+    if [[ -f "build_bootloader/bootloader.bin" ]]; then
+        SIZE="$(wc -c < build_bootloader/bootloader.bin | tr -d ' ')"
+        echo "    bootloader.bin: ${SIZE} bytes  [NOT HARDWARE-VALIDATED]"
     fi
 fi
 

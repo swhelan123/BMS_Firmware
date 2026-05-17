@@ -107,6 +107,13 @@ run_test test_isl28022 \
     firmware/src/drivers/isl28022.c \
     tests/mock_bsp/mock_board_i2c.c
 
+run_test test_bootloader_protocol \
+    tests/unit/test_bootloader_protocol.c \
+    bootloader/src/bl_protocol.c \
+    bootloader/src/bl_flash.c \
+    bootloader/src/bl_validate.c \
+    bootloader/src/bl_jump.c
+
 echo "==================================="
 echo "C Unit Tests: $PASS passed, $FAIL failed"
 [ $FAIL -eq 0 ] && exit 0 || exit 1

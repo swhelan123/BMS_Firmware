@@ -108,7 +108,7 @@ Creates `.venv`, installs `tool/requirements.txt`, and checks for:
 Runs: tool detection → pytest suite → fake-target self-test → config round-trip →
 package + update simulation → firmware build.
 
-Expected output: `30 passed  0 failed  0-5 skipped` (skipped = optional tools absent).
+Expected output: `32 passed  0 failed  0-5 skipped` (skipped = optional tools absent).
 
 ---
 
@@ -119,13 +119,14 @@ Expected output: `30 passed  0 failed  0-5 skipped` (skipped = optional tools ab
 python3 -m pytest tool/tests/ -q
 ```
 
-### C unit tests (158 across 13 suites)
+### C unit tests (181 across 14 suites)
 ```bash
 bash build_tests/run_tests.sh
 ```
 
 Covers: PEC-15, measurements decode, protocol CRC, config validate/masks, outputs,
-flash layout, bootloader validate, faults, cell balancing, open-wire detection.
+flash layout, bootloader validate, bootloader protocol state machine, faults, cell
+balancing, open-wire detection.
 
 ---
 

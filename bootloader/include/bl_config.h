@@ -28,7 +28,9 @@
 
 /* ── Hardware profile ────────────────────────────────────────────────────── */
 /* Must match HW_PROFILE_ID in bms_constants.h */
+#ifndef HW_PROFILE_ID
 #define HW_PROFILE_ID        (0x0001u)
+#endif
 
 /* ── MCU identity ────────────────────────────────────────────────────────── */
 #define STM32F303VC_DEV_ID   (0x422u)

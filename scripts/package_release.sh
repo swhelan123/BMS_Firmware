@@ -108,6 +108,39 @@ if [[ "$HAVE_FIRMWARE" -eq 1 && -f "$REPO_ROOT/build_firmware/firmware.bin" ]]; 
     fi
 fi
 
+# ── Bootloader artifacts (NOT hardware-validated) ─────────────────────────────
+
+echo
+echo "==> Bootloader artifacts [NOT HARDWARE-VALIDATED]"
+
+BL_DEST="$BUNDLE_DIR/bootloader"
+mkdir -p "$BL_DEST"
+
+for artifact in bootloader.bin bootloader.hex bms_bootloader.elf bootloader.map; do
+    src="$REPO_ROOT/build_bootloader/$artifact"
+    if [[ -f "$src" ]]; then
+        cp "$src" "$BL_DEST/$artifact"
+        SIZE="$(wc -c < "$src" | tr -d ' ')"
+        echo "    ✓  $artifact  ($SIZE bytes)  [NOT HARDWARE-VALIDATED]"
+    else
+        echo "    ─  $artifact  (not found — run ./scripts/build_bootloader.sh)"
+    fi
+done
+
+cat > "$BL_DEST/WARNING.txt" <<'BLWARN'
+BOOTLOADER ARTIFACTS — NOT HARDWARE-VALIDATED
+=============================================
+The bootloader has been compiled and unit-tested in host simulation only.
+It has NOT been flashed to any STM32F303VC target.
+
+Do NOT flash these binaries without first completing the readiness checks
+in docs/first_flash_guide.md.
+
+Bootloader flash address: 0x08000000 (sector 0, 32 KB)
+Application flash address: 0x08008000
+BLWARN
+echo "    ✓  bootloader/WARNING.txt"
+
 # ── Python tool ───────────────────────────────────────────────────────────────
 
 echo
@@ -132,7 +165,7 @@ echo "==> Scripts"
 SCRIPTS_DEST="$BUNDLE_DIR/scripts"
 mkdir -p "$SCRIPTS_DEST"
 
-for script in setup_dev_env.sh run_gui.sh bmsctl.sh demo_local.sh build_firmware.sh flash_stlink.sh validate_all.sh first_flash_dry_run.sh; do
+for script in setup_dev_env.sh run_gui.sh bmsctl.sh demo_local.sh build_firmware.sh build_bootloader.sh flash_stlink.sh validate_all.sh first_flash_dry_run.sh; do
     src="$REPO_ROOT/scripts/$script"
     if [[ -f "$src" ]]; then
         cp "$src" "$SCRIPTS_DEST/$script"
