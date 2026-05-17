@@ -63,7 +63,7 @@ export PATH="/Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/bin:$PATH"
 
 Both commands must exit 0 before proceeding.
 
-Expected `validate_all.sh` output: `30 passed  0 failed  0-5 skipped`
+Expected `validate_all.sh` output: `33 passed  0 failed  0-5 skipped`
 
 Expected `build_firmware.sh` output: `build_firmware/firmware.bin` created; size printed.
 

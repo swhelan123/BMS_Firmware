@@ -113,6 +113,7 @@ for script in \
     scripts/validate_all.sh \
     scripts/build_firmware.sh \
     scripts/build_bootloader.sh \
+    scripts/run_fake_hardware.sh \
     scripts/package_release.sh \
     scripts/flash_stlink.sh \
     scripts/first_flash_dry_run.sh

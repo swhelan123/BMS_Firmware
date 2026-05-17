@@ -37,7 +37,8 @@ tool/
       bootloader_updater.py  BootloaderUpdater: BEGIN→CHUNK*→FINALIZE over protocol
       stlink.py              STM32_Programmer_CLI wrapper (dry-run + execute gate)
     fake_target/
-      fake_target.py         Full BMS simulator: in-process or TCP server; 10 modes
+      fake_target.py         Static BMS simulator: in-process or TCP server; 12 modes
+      live_simulator.py      Live simulator: evolving values over time; 10 modes
     cli/
       bmsctl.py              Thin CLI wrapper
     gui/
@@ -50,6 +51,7 @@ tool/
     test_crc.py
     test_config_validator.py
     test_fake_target.py
+    test_live_simulator.py
     test_package_parser.py
     test_diagnostics_and_modes.py
     test_backend.py          Core backend against FakeTargetInProcess
@@ -62,7 +64,7 @@ tool/
 ## CLI
 
 ```bash
-# Start fake target
+# Static fake target (one mode, stable values)
 python -m tool.src.cli.bmsctl fake-target run --mode healthy
 python -m tool.src.cli.bmsctl fake-target self-test
 
@@ -84,6 +86,9 @@ python -m tool.src.cli.bmsctl config export-json [file.bin] [--out file.json]
 python -m tool.src.cli.bmsctl config import-json file.json [--out file.bin]
 python -m tool.src.cli.bmsctl config export-yaml [file.bin] [--out file.yaml]
 
+# Open-wire detection
+python -m tool.src.cli.bmsctl openwire run [--json]
+
 # Package
 python -m tool.src.cli.bmsctl package build fw.bin fw.pkg --version 0.1.0
 python -m tool.src.cli.bmsctl package inspect fw.pkg [--json]
@@ -100,12 +105,13 @@ python -m tool.src.cli.bmsctl stlink dry-run-app fw.pkg
 
 ## GUI
 
+Launch via the provided shell script (activates .venv automatically):
+
 ```bash
-pip install PyQt6
-python -m tool.src.gui.main --fake --mode healthy           # auto-connect, app mode
-python -m tool.src.gui.main --fake --mode openwire_detected # test open-wire flow
-python -m tool.src.gui.main --fake --mode bootloader        # test update simulation
-python -m tool.src.gui.main                                 # connect via UI (TCP or serial)
+./scripts/run_gui.sh                          # open GUI, connect manually
+./scripts/run_gui.sh --fake                   # auto-start static fake target + connect
+./scripts/run_gui.sh --fake --mode cell_uv    # specific simulation mode
+./scripts/run_gui.sh --fake --mode bootloader # test update flow
 ```
 
 Tabs: Connection | Bring-Up | Dashboard | Cells | Temperatures | Faults | Config | Firmware Flash | Logs
@@ -142,7 +148,10 @@ Safety enforced in GUI:
 - Flash execute requires explicit safety checkbox
 - No output-force or balancing-force buttons anywhere
 
-## Fake Target Modes
+**Native app packaging:** The GUI runs from source via `./scripts/run_gui.sh`.
+PyInstaller bundling is not yet implemented.
+
+## Static Fake Target Modes (12)
 
 | Mode | Description |
 |------|-------------|
@@ -159,16 +168,40 @@ Safety enforced in GUI:
 | `openwire_detected` | open-wire scan returns cell[0] flagged; status=0 |
 | `openwire_pec_fail` | open-wire scan returns status=1 (PEC failure) |
 
+## Live Simulator Modes (10)
+
+Values change over time. One shared instance per server (unlike the static fake target
+which creates a fresh instance per TCP connection).
+
+```bash
+# Start live simulator on port 65103 (default)
+./scripts/run_fake_hardware.sh --mode healthy-idle
+./scripts/run_fake_hardware.sh --mode drive          # cells draining
+./scripts/run_fake_hardware.sh --mode cell-uv        # UV fault builds up
+./scripts/run_fake_hardware.sh --mode temp-high      # temps rising
+./scripts/run_fake_hardware.sh --seed 42             # deterministic drift
+```
+
+Connect the GUI: set host=127.0.0.1 port=65103 in the Connection tab.
+
+| Mode | Description |
+|------|-------------|
+| `healthy-idle` | Cells ±5 mV random drift around 3700 mV; no faults |
+| `drive` | Cells drain 1 mV per 2 ticks; temps at 28°C |
+| `charge` | Cells charge 1 mV per 2 ticks from 3600 mV |
+| `cell-uv` | cell[0] drifts down; FAULT_CELL_UV triggers at 2500 mV |
+| `cell-ov` | cell[0] drifts up; FAULT_CELL_OV triggers at 4200 mV |
+| `temp-high` | All temps rise 0.1°C per tick; plateau at 45°C |
+| `isospi-fault` | Static FAULT_ISOSPI_CELL; cells and temps valid |
+| `openwire-detected` | cell[0] flagged as open wire (scan result only) |
+| `vpack-invalid` | Static FAULT_VPACK_INVALID |
+| `bootloader` | Responds as FIRMWARE_TYPE_BOOTLOADER |
+
 ## Tests
 
 ```bash
 python3 -m pytest tool/tests/ -q
-# 200+ passed, 1 skipped (GUI tests skipped without PyQt6)
-```
-
-Open-wire CLI:
-```bash
-python -m tool.src.cli.bmsctl openwire run [--json]
+# ~328 passed, 2 skipped (GUI tests skipped without PyQt6)
 ```
 
 ## Local Development
@@ -177,7 +210,7 @@ python -m tool.src.cli.bmsctl openwire run [--json]
 # One-command validation (no hardware needed)
 ./scripts/validate_all.sh
 
-# Full stack demo (fake target + CLI walkthrough)
+# Full stack demo (static fake target + CLI walkthrough)
 ./scripts/demo_local.sh
 
 # Full stack demo with GUI
@@ -241,32 +274,19 @@ All methods raise `ProtocolError` subclasses on timeout, bad CRC, or error respo
 
 ## Fake Target Strategy
 
-`fake_target.py` runs as either:
-1. A subprocess listening on a virtual serial port pair (for tool integration tests)
-2. An in-process mock (for unit tests of protocol client)
+**Static (`fake_target.py`):**
+- `FakeTarget.serve_tcp()` creates a fresh `FakeTarget` per TCP connection — stateless.
+- `FakeTargetInProcess` wraps a `FakeTarget` for synchronous in-process testing.
+- Values are fixed at construction; no time evolution.
+- 12 modes; used for all unit and integration tests.
 
-Scenario files (`scenarios/*.yaml`) define:
-- Cell voltages (array of 75 values or a pattern)
-- Temperature values (array of 75 values)
-- Active faults bitmask
-- Latched faults bitmask
-- State
-- Whether to inject PEC errors
-
-The fake target is the primary CI test vehicle. All tool flows are tested against it in GitHub Actions before any hardware is available.
-
----
-
-## Config Editor Strategy
-
-`config/editor_widget.py` is **generated** from `protocol/config_schema.yaml` by `scripts/gen_config_schema.py`. The generator produces:
-- A `QFormLayout`-based editor with one row per config field
-- Type-appropriate input widgets (QSpinBox, QDoubleSpinBox, QLineEdit for masks)
-- Range hints shown as placeholder/tooltip text
-- Red highlight on out-of-range values
-- Threshold ordering violations shown inline
-
-To add a config field: edit `protocol/config_schema.yaml` → run `gen_config_schema.py` → rebuild tool.
+**Live (`live_simulator.py`):**
+- `LiveFakeHardware.serve_tcp()` creates **one shared instance** for all TCP connections.
+- Background tick thread (200 ms default) evolves cell voltages, temperatures, and uptime.
+- All state access is protected by a `threading.Lock`.
+- Each TCP connection gets its own `FrameDecoder`; shared state goes through the lock.
+- 10 live modes; seed parameter makes drift deterministic.
+- Used for GUI demos and time-series visualisation; not used in pytest suite.
 
 ---
 
@@ -292,26 +312,13 @@ Both operate on real `BmsProtocolClient` or `StLinkFlasher` — the UI just call
 
 ---
 
-## Packaging
-
-PyInstaller one-folder bundle:
-```bash
-pyinstaller bms_tool.spec
-```
-
-Output: `dist/BmsTool/` (folder) or `dist/BmsTool` (single exe with `--onefile`).
-
-CI builds produce signed packages for macOS and unsigned installer for Windows. Linux users can run from source.
-
-Version baked in from `git describe --tags`.
-
----
-
 ## Test Approach
 
-1. `pytest tests/test_framing.py` — unit test packet encode/decode, CRC, error injection
-2. `pytest tests/test_config_validator.py` — client-side validation matches firmware validation
-3. `pytest tests/test_fake_target.py` — full protocol flows (requires `fake_target.py` subprocess)
-4. `pytest tests/test_package_parser.py` — package header parse, bad-header detection
+1. `pytest tests/test_framing.py` — packet encode/decode, CRC, error injection
+2. `pytest tests/test_config_validator.py` — client-side validation matches firmware
+3. `pytest tests/test_fake_target.py` — full protocol flows against FakeTarget
+4. `pytest tests/test_live_simulator.py` — evolving-state modes, thread safety, determinism
+5. `pytest tests/test_package_parser.py` — package header parse, bad-header detection
+6. `pytest tests/test_bootloader_update.py` — full bootloader update flow simulation
 
-All tests run in CI without hardware. Hardware-in-loop tests are manual (see `docs/08_validation_plan.md`).
+All tests run without hardware.

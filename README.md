@@ -108,7 +108,7 @@ Creates `.venv`, installs `tool/requirements.txt`, and checks for:
 Runs: tool detection → pytest suite → fake-target self-test → config round-trip →
 package + update simulation → firmware build.
 
-Expected output: `32 passed  0 failed  0-5 skipped` (skipped = optional tools absent).
+Expected output: `33 passed  0 failed  0-5 skipped` (skipped = optional tools absent).
 
 ---
 
