@@ -10,7 +10,7 @@
 | UI framework | PyQt6: native-looking cross-platform GUI; mature; good table/chart widgets |
 | Serial comms | `pyserial` for UART; straightforward, well-tested |
 | ST-Link integration | Subprocess call to `STM32_Programmer_CLI`; avoids USB driver complexity |
-| Packaging | PyInstaller for standalone executables (macOS, Windows, Linux) |
+| Packaging | Runs from Python source via `./scripts/run_gui.sh`; PyInstaller standalone bundling is not yet implemented |
 | Alternative | Rust + egui/tauri if strong type safety preference; heavier build chain |
 
 **Why not Electron/web-based:** Adds complexity for binary framing and serial I/O; native tool is simpler for this use case.
@@ -23,12 +23,10 @@ The tool is mode-aware at all times. Mode is determined from the `GET_CAPABILITI
 
 | Mode | Trigger | Allowed Operations |
 |---|---|---|
-| `DISCONNECTED` | No serial port open | Port selection only |
-| `CONNECTING` | Port open; awaiting capabilities | GET_CAPABILITIES only |
-| `UNKNOWN_TARGET` | Port open; no valid capabilities response | Read-only diagnostics terminal; disconnect |
-| `BMS_APPLICATION` | Capabilities confirm `firmware_type == 0x0001` | Full: monitoring, config, diagnostics, enter-bootloader |
+| `DISCONNECTED` | No connection open | Port selection only |
+| `BMS_APP` | Capabilities confirm `firmware_type == 0x0001` | Full: monitoring, config, diagnostics, enter-bootloader |
 | `BOOTLOADER` | Capabilities confirm `firmware_type == 0x0002` | Firmware update only; no runtime config |
-| `UNSUPPORTED_TARGET` | `hw_profile_id` unrecognized OR `protocol_version` incompatible | Display error; disconnect recommended |
+| `UNSUPPORTED` | `hw_profile_id` unrecognized OR capabilities exchange fails | Display error; disconnect recommended |
 
 ---
 
@@ -139,25 +137,21 @@ Available in: `BMS_APPLICATION` (read also available in `BOOTLOADER` via GET_CON
 - "Load from File" button → open JSON/YAML config file → populate fields
 
 **Edit Config:**
-- All config fields displayed with current values, units, and valid range hints
-- Fields highlighted red if out of valid range
-- Threshold ordering violations shown as inline errors
-- Mask editor: 75-bit visual grid for required_cell_mask, required_temp_mask, balance_allowed_mask
+- Grouped QSpinBox / QLineEdit fields for all editable config fields; organized by section
+- Fields show validation state inline
+- Mask fields (`required_cell_mask`, `required_temp_mask`, `balance_allowed_mask`) edited as 20-character hex strings; validated for length and reserved-bit usage
 
 **Validation:**
-- "Validate" button → `VALIDATE_CONFIG` → show pass/fail with field-level error highlighting
-- Validation happens client-side first (mirrors firmware validation logic), then server-validated
+- Client-side validation on Apply (mirrors firmware validation logic)
 
 **Apply:**
 - "Apply to RAM" button → `SET_CONFIG_RAM` → config active until reset (for testing without persisting)
-- "Store to Device" button → `STORE_CONFIG` → persistent write
-- Confirmation dialog: "This will overwrite stored config. Are you sure?"
-- Both buttons require prior successful validation
+- Persistent `STORE_CONFIG` (write to flash) is not yet implemented in the GUI
 
-**Save:**
-- "Save to File" → export current fields as JSON/YAML with schema version metadata
+**Raw View:**
+- Read-only hex dump of the current config blob as a secondary tab
 
-**Rule:** Wrong hardware profile detected in loaded config file → refuse Apply / Store; show error.
+**Rule:** Wrong hardware profile detected in loaded config → refuse Apply; show error.
 
 ---
 
@@ -246,25 +240,33 @@ A fake target simulates a BMS device over a virtual serial port (or TCP socket).
 - Protocol golden tests
 - CI testing of tool UI flows
 
-`fake_target.py` implements the full request/response protocol for all defined packets. It can inject faults, simulate cell voltages, and simulate bootloader mode. Configured via a YAML scenario file.
+`fake_target.py` implements the full request/response protocol for all defined packets. It can inject faults, simulate cell voltages, and simulate bootloader mode. Modes are hardcoded enum values — there is no YAML scenario file; the mode is selected at startup via `--mode`.
+
+`live_simulator.py` provides a live simulator with time-evolving values (cell drain, temperature rise, fault build-up). One shared instance per TCP server; 10 modes; started via `./scripts/run_fake_hardware.sh`.
 
 ---
 
 ## 7. Config Editor Strategy
 
-- Config fields are defined in `protocol/config_schema.yaml` (machine-readable)
-- Tool UI config editor is **generated** from this YAML at build time (Python codegen)
-- This ensures tool and firmware are always aligned on field names, types, and ranges
-- Adding a new config field requires only editing `config_schema.yaml`
+- Config fields are defined in `protocol/config_schema.yaml` (machine-readable; authoritative source of truth)
+- The tool UI config editor is **hardcoded** with QSpinBox/QLineEdit widgets for each field; it is not auto-generated from the YAML
+- When a new config field is added, both `config_schema.yaml` and the editor widgets in `tool/src/gui/pages/config.py` must be updated manually
+- The schema YAML is used for documentation and for the CLI `config export-json` / `config diff` paths, not for UI generation
 
 ---
 
 ## 8. Packaging
 
-- PyInstaller bundles Python + Qt + all dependencies into a single-folder or single-file executable
-- Target platforms: macOS (arm64 + x86_64), Windows 10+, Linux (Ubuntu 20.04+)
-- No installation required; extract and run
-- Version baked in at build time from git tag
+The tool runs from Python source. Launch via the provided shell script (activates `.venv` automatically):
+
+```bash
+./scripts/run_gui.sh                          # open GUI, connect manually
+./scripts/run_gui.sh --fake --mode healthy    # auto-connect to fake target
+```
+
+PyInstaller standalone bundling (macOS/Windows/Linux single-file executable) is **not yet implemented**.
+
+A source-based release bundle is generated by `./scripts/package_release.sh` — this copies firmware artifacts, tool source, scripts, and docs into `dist/bms-v{VERSION}/`. No `.venv` or `__pycache__` is included.
 
 ---
 

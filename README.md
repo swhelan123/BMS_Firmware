@@ -55,7 +55,7 @@ BMS_Firmware/
 │   │   ├── cli/            bmsctl.py — thin CLI over the shared backend
 │   │   ├── gui/            PyQt6 desktop app (9 tabs)
 │   │   └── connection/     DeviceState, DeviceMode, CapabilitiesState
-│   ├── tests/              299 pytest tests (no hardware required)
+│   ├── tests/              ~330 pytest tests (no hardware required)
 │   └── requirements.txt    pyserial, PyYAML, pytest, PyQt6
 ├── tests/                  C unit tests (Unity framework)
 │   ├── unit/               test_pec15.c, test_balance.c, test_openwire.c, …
@@ -114,7 +114,7 @@ Expected output: `33 passed  0 failed  0-5 skipped` (skipped = optional tools ab
 
 ## Run Tests
 
-### Python tests (299)
+### Python tests (~330)
 ```bash
 python3 -m pytest tool/tests/ -q
 ```

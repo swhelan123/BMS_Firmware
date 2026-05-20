@@ -26,23 +26,27 @@ firmware/
 
 ## Build System
 
-CMake with arm-none-eabi-gcc:
+CMake with arm-none-eabi-gcc. Use the provided scripts — they configure toolchain path and output directory automatically:
 
 ```bash
-cmake -B build -DCMAKE_TOOLCHAIN_FILE=cmake/arm_none_eabi.cmake
-cmake --build build --target bms_firmware.elf
+# Firmware (artifacts in build_firmware/):
+./scripts/build_firmware.sh           # release
+./scripts/build_firmware.sh debug     # debug
 
-# Unit tests (native host):
-cmake -B build_test -DBMS_BUILD_TESTS=ON
-cmake --build build_test
-./build_test/bms_tests
+# Unit tests (native host, artifacts in build_tests/):
+bash build_tests/run_tests.sh
 ```
 
-Targets:
-- `bms_firmware.elf` — main firmware image
-- `bms_firmware.bin` — raw binary (post-processed from ELF)
-- `bms_package` — firmware package (.pkg) using `tools/build_package.py`
-- `bms_tests` — host-compiled unit tests
+Direct CMake invocations also work if you prefer:
+```bash
+cmake -B build_firmware -DCMAKE_TOOLCHAIN_FILE=cmake/arm_none_eabi.cmake
+cmake --build build_firmware --target bms_firmware.elf
+```
+
+Firmware artifacts in `build_firmware/`:
+- `bms_firmware.elf` — ELF with debug symbols
+- `firmware.bin` — raw binary (flash at 0x08008000)
+- `firmware.hex` — Intel HEX
 
 Compiler flags: `-Wall -Wextra -Werror -std=c11 -Os` (release), `-Og -g3` (debug).
 
@@ -101,7 +105,7 @@ These rules must be preserved in all code changes:
 
 ## Protocol Generation
 
-The protocol packet definitions in `protocol/packet_ids.yaml` and config schema in `protocol/config_schema.yaml` are the authoritative source. A code-generation step (`scripts/gen_protocol_consts.py`) produces:
+The protocol packet definitions in `protocol/packet_ids.yaml` and config schema in `protocol/config_schema.yaml` are the authoritative source. A code-generation step (`scripts/generate_protocol.py`) produces:
 - `include/bms_protocol_ids.h` — packet ID constants
 - `include/bms_config_offsets.h` — config field offset/size constants (validated against C struct)
 

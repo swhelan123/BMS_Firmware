@@ -12,7 +12,7 @@
 | PA1 | VPACK_ADC | IN (analog) | ADC1_IN2; load-side / precharge-bus voltage | Scaled analogue input; see calibration in config |
 | PA9 | I2C2_SCL | OUT | I2C2 clock to ISL28022 | AF4; 100 kHz standard mode (bring-up); 4.75 kΩ external pull-up |
 | PA10 | I2C2_SDA | BIDIR | I2C2 data to ISL28022 | AF4 |
-| PB11 | MASTER_OK | OUT | MasterOk / multipurpose permission into shutdown logic | Not a direct relay driver; active polarity TBD per board |
+| PB11 | MASTER_OK | OUT | MasterOk / multipurpose permission into shutdown logic | Not a direct relay driver; MCU HIGH = asserted (see §11) |
 | PB10 | DISCHARGE_PERM | OUT | DischargePermission into shutdown logic | Not a direct relay driver |
 | PB0 | CHARGE_PERM | OUT | ChargePermission | |
 | PB2 | CHARGER_SAFETY | OUT | ChargerSafety | |
@@ -29,7 +29,7 @@
 | BOOT0 | IN | Boot mode selection | Low = normal boot; High = system bootloader; board must pull low for normal operation |
 
 > **OPEN QUESTION:** Exact GPIO for POWER_ENABLE, POWER_BUTTON, CHARGE_DETECT — confirm from schematic.
-> **OPEN QUESTION:** Active polarity (assert = HIGH or LOW) for each permission output — confirm from shutdown logic schematic.
+> **RESOLVED:** Permission output polarity confirmed (schematic reviewed). See §11 for details.
 > **OPEN QUESTION:** ISL28022 I2C address (A0/A1 pin strap) — confirm from board.
 > **OPEN QUESTION:** BOOT0 pull resistor value and board pull direction.
 

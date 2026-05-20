@@ -26,7 +26,7 @@ This boundary is intentional and must never be blurred in firmware, configuratio
 | Fault detection | Cell OV/UV, temperature over-range, open-wire, communication errors |
 | Permission management | Assert/deassert MasterOk, DischargePermission, ChargePermission, ChargerSafety |
 | Precharge validation | Compare Vbat vs Vpack; validate ratio before permission |
-| Communication | CAN telemetry, USB/UART debug/config protocol |
+| Communication | USB/UART debug/config protocol; CAN telemetry (hardware pins wired; firmware stub only — not yet implemented) |
 | Configuration | Persistent versioned config stored in flash |
 | Update | ST-Link development flash; bootloader-based production update |
 

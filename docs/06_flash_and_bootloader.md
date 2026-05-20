@@ -20,15 +20,15 @@ Address          Size     Pages   Region             Notes
 0x08008000       188 KB   94      APPLICATION         BMS firmware image
 0x08037000       8 KB     4       CONFIG_A            Config slot A (dual-slot)
 0x08039000       8 KB     4       CONFIG_B            Config slot B (dual-slot)
-0x0803B000       8 KB     4       UPDATE_STAGING      Staging region for new image header/metadata
-0x0803D000       8 KB     4       DIAGNOSTICS_LOG     Optional: persistent diagnostic ring buffer
-0x0803F000       8 KB     4       RESERVED            Future use
+0x0803B000       20 KB    10      (unallocated)       Reserved for future use
 
 Total: 256 KB
 ```
 
 > **PROVISIONAL:** All addresses subject to confirmation of STM32F303 variant.
-> **OPEN QUESTION HV-11:** If variant has 512 KB flash, application region can expand to ~450+ KB and staging region can hold a full staged image for additional safety.
+> **OPEN QUESTION HV-11:** If variant has 512 KB flash, application region can expand significantly; a dedicated update-staging region becomes feasible.
+
+Note: An UPDATE_STAGING and DIAGNOSTICS_LOG region were considered in early design but are not present in the current linker scripts. All update transfers are held in RAM; the old image is erased only after full transfer and CRC verification.
 
 For 512 KB variant, proposed expansion:
 ```
@@ -83,10 +83,6 @@ Bootloader starts (always at 0x08000000)
   ├─ Check retained SRAM boot flag:
   │    BL_ENTRY_FLAG == 0xB007B007 ?
   │    Yes → clear flag → stay in bootloader (tool-requested entry)
-  │
-  ├─ Check UPDATE_STAGING region:
-  │    Incomplete update in progress (status byte)?
-  │    Yes → attempt recovery or stay in bootloader
   │
   ├─ Validate application image:
   │    - SP valid (in SRAM range)?
@@ -214,29 +210,28 @@ The tool must warn the user when `required_config_schema` in the package differs
 | Stage | Behaviour on Power Loss |
 |---|---|
 | Before `BOOT_UPDATE_BEGIN` accepted | No change; previous firmware intact |
-| During chunk transfer (before all chunks received) | Staging region incomplete; boot flag not set; old image intact; bootloader stays in BL mode on next boot |
+| During chunk transfer (before all chunks received) | Chunks held in RAM; old flash image untouched; boot flag not set; old image intact; bootloader stays in BL mode on next boot |
 | During flash erase (old image partially erased) | Old image invalid; bootloader stays in BL mode; waits for retry |
 | During flash write (new image partially written) | CRC will fail on next boot; bootloader stays in BL mode |
 | After `BOOT_UPDATE_FINALIZE` with CRC pass | New image valid; boots on next reset |
 | Config region at any stage | Unchanged; both slots either both valid or one valid from before |
 
-The 256 KB variant does not have space for a full staged-image region, so erase starts only after full transfer and CRC verification of the staged data. For 512 KB variants with a full staging region, the old image can be validated before erase begins.
+Chunks are accumulated in RAM during transfer. Erase of the old image begins only after all chunks are received and the assembled payload CRC is verified. Power loss before that point leaves the old image intact and the bootloader retries on the next connection. For 512 KB variants a dedicated on-flash staging region would enable full image validation before erase.
 
 ---
 
 ## 13. Development ST-Link Flashing
 
-Development flashing bypasses the bootloader entirely. The ST-Link / STM32_Programmer_CLI tool writes directly to flash at the full address range including 0x08000000 (bootloader region if writing a combined image).
+Development flashing bypasses the bootloader entirely. The ST-Link / STM32_Programmer_CLI tool writes directly to flash.
 
-**Combined development image:** links bootloader + application as a single binary starting at 0x08000000. Used for initial bring-up.
+**Application flash (typical):** `scripts/flash_stlink.sh --app firmware.bin` writes to 0x08008000. Bootloader at 0x08000000 is untouched.
 
-**Split development image:** bootloader at 0x08000000, application at 0x08008000, written separately.
+**Bootloader flash:** `scripts/flash_stlink.sh --bootloader bl.bin --execute` writes to 0x08000000. Requires `--execute` as an explicit acknowledgement.
 
-The desktop tool supports:
-- Direct ST-Link flash (calls STM32_Programmer_CLI as subprocess)
-- Displays ST-Link output in the Firmware Flash page terminal
-- Supports combined and split image modes
-- Does NOT bypass package validation for production-style update (only ST-Link path bypasses validation)
+The desktop tool's Firmware Flash page:
+- Generates and displays the ST-Link command (dry-run mode)
+- Executes the flash only when the safety checkbox is ticked (`--execute` equivalent)
+- Does NOT bypass package validation for the protocol update path (only the ST-Link path bypasses validation)
 
 ---
 
