@@ -8,6 +8,7 @@
 #include "bms_balance.h"
 #include "bms_protocol.h"
 #include "bms_can.h"
+#include "bms_soc.h"
 #include "ltc6812.h"
 #include "board_outputs.h"
 #include "board_clock.h"
@@ -38,6 +39,7 @@ void bms_main_loop_init(void) {
     bms_state_init();
     bms_protocol_init();
     bms_can_init();
+    bms_soc_init();
 
     if (cfg_r != BMS_OK) {
         bms_faults_set(FAULT_BIT_CONFIG_INVALID);
@@ -61,11 +63,15 @@ void bms_main_loop_run(void) {
         /* ── Kick watchdog ────────────────────────────────────────────────── */
         kick_iwdg();
 
+        /* ── Config pointer (used by measurement and fault paths) ────────── */
+        const BmsConfig *cfg = bms_config_get();
+
         /* ── Measurement cycles ───────────────────────────────────────────── */
         if ((now - s_last_cell_ms) >= CELL_CYCLE_PERIOD_MS) {
             s_last_cell_ms = now;
             BmsResult r = bms_measurements_run_cell_cycle();
             if (r == BMS_ERR_PEC) { bms_faults_report_pec_error(BMS_CHAIN_CELL); }
+            bms_soc_maybe_init_from_cells(bms_measurements_get_cells(), cfg->capacity_mah);
         }
 
         if ((now - s_last_temp_ms) >= TEMP_CYCLE_PERIOD_MS) {
@@ -77,10 +83,13 @@ void bms_main_loop_run(void) {
         if ((now - s_last_pack_ms) >= PACK_CYCLE_PERIOD_MS) {
             s_last_pack_ms = now;
             bms_measurements_run_pack_cycle();
+            const PackMeasurement *pack = bms_measurements_get_pack();
+            if (pack->i_batt_valid) {
+                bms_soc_update(pack->i_batt_ma, PACK_CYCLE_PERIOD_MS, cfg->capacity_mah);
+            }
         }
 
         /* ── Fault evaluation ─────────────────────────────────────────────── */
-        const BmsConfig *cfg = bms_config_get();
         bms_faults_evaluate(bms_measurements_get_cells(),
                              bms_measurements_get_temps(),
                              bms_measurements_get_pack(),

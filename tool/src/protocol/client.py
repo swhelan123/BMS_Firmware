@@ -102,7 +102,7 @@ class BmsProtocolClient:
 
     def get_values(self) -> dict:
         p = self.send_request(PKT_GET_VALUES)
-        return {
+        result = {
             'vbat_mv':           struct.unpack_from('<i', p, 0)[0],
             'vpack_mv':          struct.unpack_from('<i', p, 4)[0],
             'i_batt_ma':         struct.unpack_from('<i', p, 8)[0],
@@ -112,7 +112,9 @@ class BmsProtocolClient:
             'outputs_state':     p[30],
             'uptime_ms':         struct.unpack_from('<I', p, 31)[0],
             'measurement_flags': p[35],
+            'soc_pct_x10':       struct.unpack_from('<h', p, 36)[0] if len(p) >= 38 else -1,
         }
+        return result
 
     def get_cells(self, include_validity: bool = False) -> dict:
         req = bytes([0x01 if include_validity else 0x00])

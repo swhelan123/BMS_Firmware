@@ -105,4 +105,7 @@ def validate_config(cfg: BmsConfig) -> tuple:
     if cfg.can_base_id > 0x7FF:
         return fail(182, "can_base_id must be <= 0x7FF")
 
+    if cfg.capacity_mah == 0:
+        return fail(188, "capacity_mah must be > 0")
+
     return True, 0xFFFF, "OK"

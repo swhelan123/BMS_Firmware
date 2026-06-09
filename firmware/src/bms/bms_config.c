@@ -70,6 +70,8 @@ static const BmsConfig k_defaults = {
     .can_base_id                 = 0x0500u,
     .reserved_can                = 0u,
 
+    .capacity_mah                = 100000u, /* 100 Ah default — adjust per pack */
+
     .reserved                    = {0},
 };
 
@@ -173,9 +175,12 @@ BmsResult bms_config_validate(const BmsConfig *cfg, uint16_t *err_field_offset) 
     /* CAN */
     if (cfg->can_base_id > 0x7FFu) { FAIL(182); }
 
+    /* Capacity */
+    if (cfg->capacity_mah == 0u) { FAIL(188); }
+
     /* Reserved end must be zero */
-    for (int i = 0; i < 40; i++) {
-        if (cfg->reserved[i] != 0u) { FAIL(186); }
+    for (int i = 0; i < 34; i++) {
+        if (cfg->reserved[i] != 0u) { FAIL(192); }
     }
 
     if (err_field_offset) { *err_field_offset = 0xFFFFu; }

@@ -129,6 +129,7 @@ class FakeTarget:
         self._openwire_pec_fail  = False
         self._reset_cause     = 0x01  # POR on fresh boot
         self._firmware_type   = FIRMWARE_TYPE_BMS_APP
+        self._soc_pct_x10     = 750   # 75.0% initial SOC
         # Bootloader update state
         self._update_state          = None    # None | 'accepting_chunks' | 'complete'
         self._update_staged         = bytearray()
@@ -265,7 +266,7 @@ class FakeTarget:
             (0 if vpack_fault else 2) |   # bit1: vpack_valid
             (0 if i2c_fault   else 4)     # bit2: i_batt_valid
         )
-        resp = bytearray(36)
+        resp = bytearray(38)
         struct.pack_into('<i', resp, 0,  vbat_mv)
         struct.pack_into('<i', resp, 4,  vpack_mv)
         struct.pack_into('<i', resp, 8,  i_batt_ma)
@@ -275,6 +276,7 @@ class FakeTarget:
         resp[30] = 0                                 # outputs_state
         struct.pack_into('<I', resp, 31, self._uptime_ms)
         resp[35] = meas_flags
+        struct.pack_into('<h', resp, 36, self._soc_pct_x10)
         return self._respond(PKT_GET_VALUES, bytes(resp), seq)
 
     def _h_cells(self, seq: int, payload: bytes) -> bytes:
@@ -596,6 +598,9 @@ class FakeTarget:
 
     def set_firmware_type(self, fw_type: int) -> None:
         self._firmware_type = fw_type
+
+    def set_soc(self, soc_pct_x10: int) -> None:
+        self._soc_pct_x10 = max(-1, min(1000, soc_pct_x10))
 
 
 # ── In-process helper for unit tests ─────────────────────────────────────────

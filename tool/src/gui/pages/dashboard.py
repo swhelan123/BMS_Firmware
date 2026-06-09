@@ -68,9 +68,10 @@ class DashboardPage(QWidget):
         self._vbat  = _card("Vbat:",        0, left_grid)
         self._vpack = _card("Vpack:",       1, left_grid)
         self._ibat  = _card("Current:",     2, left_grid)
-        self._state = _card("BMS State:",   3, left_grid)
-        self._uptime = _card("Uptime:",     4, left_grid)
-        self._mflags = _card("Readings:",   5, left_grid)
+        self._soc   = _card("SOC:",         3, left_grid)
+        self._state = _card("BMS State:",   4, left_grid)
+        self._uptime = _card("Uptime:",     5, left_grid)
+        self._mflags = _card("Readings:",   6, left_grid)
 
         # Right: faults + outputs
         right_grp = QGroupBox("Status")
@@ -114,7 +115,7 @@ class DashboardPage(QWidget):
     def refresh(self, state: AppState) -> None:
         vs = state.values
         if not vs.valid:
-            for lbl in (self._vbat, self._vpack, self._ibat,
+            for lbl in (self._vbat, self._vpack, self._ibat, self._soc,
                         self._state, self._uptime, self._outputs,
                         self._fault_sum, self._latched, self._mflags):
                 lbl.setText("—")
@@ -138,6 +139,20 @@ class DashboardPage(QWidget):
             self._ibat,
             f"{vs.i_batt_ma / 1000:.2f} A" if ibat_ok else "invalid",
             ibat_ok)
+
+        if vs.soc_pct_x10 >= 0:
+            soc_pct = vs.soc_pct_x10 / 10.0
+            soc_text = f"{soc_pct:.1f}%"
+            if soc_pct <= 10.0:
+                self._soc.setStyleSheet("font-size:16px; font-weight:bold; color:#c0392b;")
+            elif soc_pct <= 25.0:
+                self._soc.setStyleSheet("font-size:16px; font-weight:bold; color:#d4a017;")
+            else:
+                self._soc.setStyleSheet(self._STYLE_VAL)
+        else:
+            soc_text = "unknown"
+            self._soc.setStyleSheet(self._STYLE_INVALID)
+        self._soc.setText(soc_text)
 
         self._state.setText(_BMS_STATES.get(vs.bms_state, str(vs.bms_state)))
         self._state.setStyleSheet(self._STYLE_VAL)

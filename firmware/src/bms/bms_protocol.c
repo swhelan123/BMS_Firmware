@@ -9,6 +9,7 @@
 #include "bms_state.h"
 #include "bms_diagnostics.h"
 #include "bms_balance.h"
+#include "bms_soc.h"
 #include "ltc6812.h"
 #include "board_uart.h"
 #include "board_clock.h"
@@ -131,6 +132,9 @@ static void handle_get_values(uint8_t seq) {
     resp[31]=(uint8_t)up; resp[32]=(uint8_t)(up>>8); resp[33]=(uint8_t)(up>>16); resp[34]=(uint8_t)(up>>24);
     uint8_t mf = (pack->vbat_valid?4u:0u)|(pack->vpack_valid?8u:0u);
     resp[35] = mf;
+    int16_t soc = bms_soc_get_pct_x10();
+    resp[36] = (uint8_t)((uint16_t)soc & 0xFFu);
+    resp[37] = (uint8_t)((uint16_t)soc >> 8u);
     send_response(PKT_GET_VALUES, seq, resp, sizeof(resp), false);
 }
 

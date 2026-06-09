@@ -29,6 +29,24 @@ from .fake_target import FakeTarget, FAULT_BIT_CELL_OV, FAULT_BIT_CELL_UV, FAULT
 from ..protocol.framing import FrameDecoder
 from ..protocol.packet_defs import TOTAL_CELL_COUNT, TOTAL_TEMP_COUNT, FIRMWARE_TYPE_BOOTLOADER
 
+# NMC OCV table: [(cell_mv, soc_x10), ...] sorted descending by voltage.
+_OCV_TABLE = [
+    (4200, 1000), (4100, 900), (4000, 800), (3900, 700), (3800, 600),
+    (3700, 500),  (3600, 400), (3500, 300), (3400, 200), (3300, 150),
+    (3200, 100),  (3100,  50), (3000,   0),
+]
+
+def _ocv_to_soc_x10(min_mv: float) -> int:
+    if min_mv >= _OCV_TABLE[0][0]:  return 1000
+    if min_mv <= _OCV_TABLE[-1][0]: return 0
+    for i in range(len(_OCV_TABLE) - 1):
+        hi_mv, hi_soc = _OCV_TABLE[i]
+        lo_mv, lo_soc = _OCV_TABLE[i + 1]
+        if lo_mv <= min_mv <= hi_mv:
+            frac = (hi_mv - min_mv) / (hi_mv - lo_mv)
+            return int(hi_soc + frac * (lo_soc - hi_soc))
+    return 0
+
 LIVE_MODES = frozenset([
     'healthy-idle', 'drive', 'charge',
     'cell-uv', 'cell-ov', 'temp-high',
@@ -59,6 +77,7 @@ class LiveFakeHardware:
 
         # Initialise the underlying FakeTarget to a clean baseline; _init_mode adjusts it.
         self._target = FakeTarget(mode='healthy')
+        self._soc_pct_x10: int = 750   # will be overwritten by _init_mode
         self._init_mode()
 
         # Start tick thread (daemon so it dies with the process).
@@ -74,10 +93,12 @@ class LiveFakeHardware:
         if m == 'healthy-idle':
             self._cell_mv = [3700] * TOTAL_CELL_COUNT
             self._temp_cx10 = [250] * TOTAL_TEMP_COUNT
+            self._soc_pct_x10 = _ocv_to_soc_x10(3700)
 
         elif m == 'drive':
             self._cell_mv = [3700] * TOTAL_CELL_COUNT
             self._temp_cx10 = [280] * TOTAL_TEMP_COUNT
+            self._soc_pct_x10 = _ocv_to_soc_x10(3700)
             self._target.set_temps_cx10(self._temp_cx10)
 
         elif m == 'charge':
@@ -85,24 +106,29 @@ class LiveFakeHardware:
             self._temp_cx10 = [270] * TOTAL_TEMP_COUNT
             self._target.set_cell_mv(self._cell_mv)
             self._target.set_temps_cx10(self._temp_cx10)
+            self._soc_pct_x10 = _ocv_to_soc_x10(3600)
 
         elif m == 'cell-uv':
             self._cell_mv = [3700] * TOTAL_CELL_COUNT
             self._temp_cx10 = [250] * TOTAL_TEMP_COUNT
+            self._soc_pct_x10 = _ocv_to_soc_x10(3700)
 
         elif m == 'cell-ov':
             self._cell_mv = [3700] * TOTAL_CELL_COUNT
             self._temp_cx10 = [250] * TOTAL_TEMP_COUNT
+            self._soc_pct_x10 = _ocv_to_soc_x10(3700)
 
         elif m == 'temp-high':
             self._cell_mv = [3700] * TOTAL_CELL_COUNT
             self._temp_cx10 = [250] * TOTAL_TEMP_COUNT
+            self._soc_pct_x10 = _ocv_to_soc_x10(3700)
 
         elif m == 'isospi-fault':
             self._target.inject_fault(FAULT_BIT_ISOSPI_CELL)
             self._fault_injected.add('isospi')
             self._cell_mv = [3700] * TOTAL_CELL_COUNT
             self._temp_cx10 = [250] * TOTAL_TEMP_COUNT
+            self._soc_pct_x10 = _ocv_to_soc_x10(3700)
 
         elif m == 'openwire-detected':
             detected = [False] * TOTAL_CELL_COUNT
@@ -110,17 +136,22 @@ class LiveFakeHardware:
             self._target.set_open_wire(valid=True, detected=detected)
             self._cell_mv = [3700] * TOTAL_CELL_COUNT
             self._temp_cx10 = [250] * TOTAL_TEMP_COUNT
+            self._soc_pct_x10 = _ocv_to_soc_x10(3700)
 
         elif m == 'vpack-invalid':
             self._target.inject_fault(FAULT_BIT_VPACK_INVALID)
             self._fault_injected.add('vpack')
             self._cell_mv = [3700] * TOTAL_CELL_COUNT
             self._temp_cx10 = [250] * TOTAL_TEMP_COUNT
+            self._soc_pct_x10 = _ocv_to_soc_x10(3700)
 
         elif m == 'bootloader':
             self._target.set_firmware_type(FIRMWARE_TYPE_BOOTLOADER)
             self._cell_mv = [3700] * TOTAL_CELL_COUNT
             self._temp_cx10 = [250] * TOTAL_TEMP_COUNT
+            self._soc_pct_x10 = _ocv_to_soc_x10(3700)
+
+        self._target.set_soc(self._soc_pct_x10)
 
     # ── Tick ──────────────────────────────────────────────────────────────────
 
@@ -147,14 +178,18 @@ class LiveFakeHardware:
             elif m == 'drive':
                 if tc % 2 == 0:
                     self._cell_mv = [max(2800, mv - 1) for mv in self._cell_mv]
+                self._soc_pct_x10 = _ocv_to_soc_x10(min(self._cell_mv))
                 self._target.set_cell_mv(self._cell_mv)
                 self._target.set_temps_cx10(self._temp_cx10)
+                self._target.set_soc(self._soc_pct_x10)
 
             elif m == 'charge':
                 if tc % 2 == 0:
                     self._cell_mv = [min(4100, mv + 1) for mv in self._cell_mv]
+                self._soc_pct_x10 = _ocv_to_soc_x10(min(self._cell_mv))
                 self._target.set_cell_mv(self._cell_mv)
                 self._target.set_temps_cx10(self._temp_cx10)
+                self._target.set_soc(self._soc_pct_x10)
 
             elif m == 'cell-uv':
                 if tc % 2 == 0 and self._cell_mv[0] > 2400:

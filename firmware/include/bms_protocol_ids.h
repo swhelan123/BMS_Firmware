@@ -40,7 +40,7 @@
 
 /* ── Fixed response payload sizes ────────────────────────────────────────── */
 #define PKT_CAPABILITIES_RESP_SIZE  (26u)
-#define PKT_VALUES_RESP_SIZE        (36u)
+#define PKT_VALUES_RESP_SIZE        (38u)
 #define PKT_GET_CELLS_RESP_BASE     (156u)  /* without validity bitfield */
 #define PKT_GET_CELLS_RESP_FULL     (166u)  /* with 10-byte validity bitfield */
 #define PKT_GET_TEMPS_RESP_SIZE     (152u)  /* 2 + 75*2 */

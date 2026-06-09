@@ -17,6 +17,7 @@ class ValuesState:
     outputs_state:     int  = 0
     uptime_ms:         int  = 0
     measurement_flags: int  = 0
+    soc_pct_x10:       int  = -1   # 0–1000 = 0.0%–100.0%, -1 = unknown
     valid:             bool = False
 
 

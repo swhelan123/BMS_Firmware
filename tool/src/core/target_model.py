@@ -118,6 +118,7 @@ class TargetModel:
             outputs_state     = r['outputs_state'],
             uptime_ms         = r['uptime_ms'],
             measurement_flags = r['measurement_flags'],
+            soc_pct_x10       = r.get('soc_pct_x10', -1),
             valid             = True,
         )
 

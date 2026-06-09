@@ -64,7 +64,8 @@ _STRUCT_FMT += 'h'   # current_offset_ma           178
 _STRUCT_FMT += 'I'   # can_watchdog_timeout_ms     180
 _STRUCT_FMT += 'H'   # can_base_id                 184
 _STRUCT_FMT += 'H'   # reserved_can                186
-_STRUCT_FMT += '38s' # reserved                    188
+_STRUCT_FMT += 'I'   # capacity_mah                188
+_STRUCT_FMT += '34s' # reserved                    192
 
 assert struct.calcsize(_STRUCT_FMT) == CONFIG_SCHEMA_SIZE, \
     f"Schema struct size mismatch: {struct.calcsize(_STRUCT_FMT)} != {CONFIG_SCHEMA_SIZE}"
@@ -134,8 +135,10 @@ class BmsConfig:
     can_watchdog_timeout_ms:        int   = 0
     can_base_id:                    int   = 0x0500
     reserved_can:                   int   = 0
+    # Capacity
+    capacity_mah:                   int   = 100000  # 100 Ah default — adjust per pack
     # Reserved
-    reserved:                       bytes = field(default_factory=lambda: bytes(38))
+    reserved:                       bytes = field(default_factory=lambda: bytes(34))
 
     def pack(self) -> bytes:
         """Serialize to 226-byte blob with correct CRC."""
@@ -164,6 +167,7 @@ class BmsConfig:
             self.vbat_gain_x1000, self.vbat_offset_mv,
             self.current_gain_x1000, self.current_offset_ma,
             self.can_watchdog_timeout_ms, self.can_base_id, self.reserved_can,
+            self.capacity_mah,
             self.reserved,
         )
         crc = crc32_iso_hdlc(blob)
@@ -200,5 +204,5 @@ class BmsConfig:
             vbat_gain_x1000=fields[41], vbat_offset_mv=fields[42],
             current_gain_x1000=fields[43], current_offset_ma=fields[44],
             can_watchdog_timeout_ms=fields[45], can_base_id=fields[46],
-            reserved_can=fields[47], reserved=fields[48],
+            reserved_can=fields[47], capacity_mah=fields[48], reserved=fields[49],
         )

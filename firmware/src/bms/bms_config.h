@@ -88,8 +88,11 @@ typedef struct {
     uint16_t can_base_id;
     uint16_t reserved_can;
 
-    /* Reserved (38 bytes, offset 188) */
-    uint8_t  reserved[38];
+    /* Capacity (4 bytes, offset 188) */
+    uint32_t capacity_mah;           /* pack capacity in mAh; used for SOC coulomb counting */
+
+    /* Reserved (34 bytes, offset 192) */
+    uint8_t  reserved[34];
 } BmsConfig;
 #pragma pack(pop)
 
