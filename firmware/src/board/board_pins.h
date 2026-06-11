@@ -41,9 +41,8 @@
 /* ── ADC1 — Vpack load-side voltage ─────────────────────────────────────── */
 #define VPACK_ADC_PORT      GPIOA
 #define VPACK_ADC_PIN       1u      /* PA1  — ADC1_IN2 */
-/* OQ-ADC: confirm resistor divider ratio and reference voltage */
 #define VPACK_ADC_CHANNEL   2u
-#define VPACK_VREF_MV       3300u   /* internal VREF; confirm against hardware */
+#define VPACK_VREF_MV       3300u
 
 /* ── CAN — vehicle bus (ISO1050) ─────────────────────────────────────────── */
 #define CAN_PORT            GPIOA

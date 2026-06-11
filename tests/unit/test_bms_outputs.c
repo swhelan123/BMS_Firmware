@@ -100,15 +100,6 @@ void test_temp_over_discharge_blocks_discharge_not_charge(void) {
     TEST_ASSERT_TRUE(s & OUTPUTS_BIT_CHARGE);
 }
 
-void test_precharge_timeout_blocks_only_master_ok(void) {
-    BmsPermissionRequest req = all_wanted();
-    bms_outputs_apply(&req, FAULT_MASK(FAULT_BIT_PRECHARGE_TIMEOUT), 0u);
-    BmsOutputsBitmask s = bms_outputs_get_state();
-    TEST_ASSERT_FALSE(s & OUTPUTS_BIT_MASTER_OK);
-    TEST_ASSERT_TRUE(s & OUTPUTS_BIT_DISCHARGE);
-    TEST_ASSERT_TRUE(s & OUTPUTS_BIT_CHARGE);
-}
-
 void test_deassert_all_clears_all_permissions(void) {
     BmsPermissionRequest req = all_wanted();
     bms_outputs_apply(&req, 0u, 0u);
@@ -135,7 +126,6 @@ int main(void) {
     RUN_TEST(test_cell_ov_blocks_charge);
     RUN_TEST(test_temp_over_charge_blocks_charge_not_discharge);
     RUN_TEST(test_temp_over_discharge_blocks_discharge_not_charge);
-    RUN_TEST(test_precharge_timeout_blocks_only_master_ok);
     RUN_TEST(test_deassert_all_clears_all_permissions);
     RUN_TEST(test_no_permission_wanted_no_output_set);
     return UNITY_END();

@@ -54,28 +54,23 @@ typedef struct {
     uint32_t overcurrent_hard_ma;
     uint32_t overcurrent_warn_ma;
 
-    /* Precharge (8 bytes, offset 108) */
-    uint16_t precharge_pct;
-    uint32_t precharge_timeout_ms;
-    uint16_t precharge_delta_max_pct;
-
-    /* Balancing (8 bytes, offset 116) */
+    /* Balancing (8 bytes, offset 108) */
     uint32_t balance_on_time_ms;
     uint32_t balance_off_time_ms;
 
-    /* Temperature measurement (4 bytes, offset 124) */
+    /* Temperature measurement (4 bytes, offset 116) */
     uint16_t temp_settle_time_ms;
     uint16_t reserved_temp_params;
 
-    /* Stale data timeout (4 bytes, offset 128) */
+    /* Stale data timeout (4 bytes, offset 120) */
     uint32_t stale_data_timeout_ms;
 
-    /* Masks (30 bytes, offset 132): 75-bit masks in 10 bytes each */
+    /* Masks (30 bytes, offset 124): 75-bit masks in 10 bytes each */
     uint8_t required_cell_mask[10];
     uint8_t required_temp_mask[10];
     uint8_t balance_allowed_mask[10];
 
-    /* Calibration (18 bytes, offset 162) */
+    /* Calibration (18 bytes, offset 154) */
     uint32_t vpack_gain_x1000;
     int32_t  vpack_offset_mv;
     uint16_t vbat_gain_x1000;
@@ -83,16 +78,16 @@ typedef struct {
     uint32_t current_gain_x1000;   /* uint32: AMC1302+divider chain requires ~1,855,000 */
     int16_t  current_offset_ma;
 
-    /* CAN / communication (8 bytes, offset 180) */
+    /* CAN / communication (8 bytes, offset 172) */
     uint32_t can_watchdog_timeout_ms;
     uint16_t can_base_id;
     uint16_t reserved_can;
 
-    /* Capacity (4 bytes, offset 188) */
+    /* Capacity (4 bytes, offset 180) */
     uint32_t capacity_mah;           /* pack capacity in mAh; used for SOC coulomb counting */
 
-    /* Reserved (34 bytes, offset 192) */
-    uint8_t  reserved[34];
+    /* Reserved (42 bytes, offset 184) */
+    uint8_t  reserved[42];
 } BmsConfig;
 #pragma pack(pop)
 

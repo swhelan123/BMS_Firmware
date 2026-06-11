@@ -38,10 +38,6 @@ static const BmsConfig k_defaults = {
     .overcurrent_hard_ma         = 100000u,
     .overcurrent_warn_ma         = 80000u,
 
-    .precharge_pct               = 90u,
-    .precharge_timeout_ms        = 10000u,
-    .precharge_delta_max_pct     = 5u,
-
     .balance_on_time_ms          = 5000u,
     .balance_off_time_ms         = 1000u,
 
@@ -147,40 +143,35 @@ BmsResult bms_config_validate(const BmsConfig *cfg, uint16_t *err_field_offset) 
     if (cfg->overcurrent_warn_ma > cfg->overcurrent_hard_ma) { FAIL(104); }
     if (cfg->overcurrent_hard_ma == 0u) { FAIL(100); }
 
-    /* Precharge */
-    if (cfg->precharge_pct < 50u || cfg->precharge_pct > 99u) { FAIL(108); }
-    if (cfg->precharge_timeout_ms == 0u)                        { FAIL(110); }
-    if (cfg->precharge_delta_max_pct < 1u || cfg->precharge_delta_max_pct > 20u) { FAIL(114); }
-
     /* Balancing */
-    if (cfg->balance_on_time_ms  == 0u) { FAIL(116); }
-    if (cfg->balance_off_time_ms == 0u) { FAIL(120); }
+    if (cfg->balance_on_time_ms  == 0u) { FAIL(108); }
+    if (cfg->balance_off_time_ms == 0u) { FAIL(112); }
 
     /* Temp settle */
-    if (cfg->temp_settle_time_ms == 0u) { FAIL(124); }
+    if (cfg->temp_settle_time_ms == 0u) { FAIL(116); }
 
     /* Stale timeout */
-    if (cfg->stale_data_timeout_ms < 100u) { FAIL(128); }
+    if (cfg->stale_data_timeout_ms < 100u) { FAIL(120); }
 
     /* INV-06: mask reserved bits must be zero */
-    if (cfg->required_cell_mask[9]   & CONFIG_MASK_RESERVED_MASK) { FAIL(132); }
-    if (cfg->required_temp_mask[9]   & CONFIG_MASK_RESERVED_MASK) { FAIL(142); }
-    if (cfg->balance_allowed_mask[9] & CONFIG_MASK_RESERVED_MASK) { FAIL(152); }
+    if (cfg->required_cell_mask[9]   & CONFIG_MASK_RESERVED_MASK) { FAIL(124); }
+    if (cfg->required_temp_mask[9]   & CONFIG_MASK_RESERVED_MASK) { FAIL(134); }
+    if (cfg->balance_allowed_mask[9] & CONFIG_MASK_RESERVED_MASK) { FAIL(144); }
 
     /* Calibration bounds */
-    if (cfg->vpack_gain_x1000 == 0u)    { FAIL(162); }
-    if (cfg->vbat_gain_x1000 == 0u)     { FAIL(170); }
-    if (cfg->current_gain_x1000 == 0u)  { FAIL(174); }
+    if (cfg->vpack_gain_x1000 == 0u)    { FAIL(154); }
+    if (cfg->vbat_gain_x1000 == 0u)     { FAIL(162); }
+    if (cfg->current_gain_x1000 == 0u)  { FAIL(166); }
 
     /* CAN */
-    if (cfg->can_base_id > 0x7FFu) { FAIL(182); }
+    if (cfg->can_base_id > 0x7FFu) { FAIL(176); }
 
     /* Capacity */
-    if (cfg->capacity_mah == 0u) { FAIL(188); }
+    if (cfg->capacity_mah == 0u) { FAIL(180); }
 
     /* Reserved end must be zero */
-    for (int i = 0; i < 34; i++) {
-        if (cfg->reserved[i] != 0u) { FAIL(192); }
+    for (int i = 0; i < 42; i++) {
+        if (cfg->reserved[i] != 0u) { FAIL(184); }
     }
 
     if (err_field_offset) { *err_field_offset = 0xFFFFu; }

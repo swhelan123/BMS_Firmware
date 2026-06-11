@@ -324,51 +324,12 @@ sections:
         validation: "<= overcurrent_hard_ma"
         storage_order: 28
 
-  # ─── Precharge (8 bytes, offset 108) ─────────────────────────────────────
-
-  precharge:
-    fields:
-      - name: precharge_pct
-        offset: 108
-        size: 2
-        type: uint16
-        units: "%"
-        default: 90
-        min: 50
-        max: 99
-        validation: "in [50, 99]"
-        storage_order: 29
-        notes: Vpack must reach this % of Vbat for precharge to complete
-
-      - name: precharge_timeout_ms
-        offset: 110
-        size: 4
-        type: uint32
-        units: ms
-        default: 10000
-        min: 500
-        max: 60000
-        validation: "> 0"
-        storage_order: 30
-
-      - name: precharge_delta_max_pct
-        offset: 114
-        size: 2
-        type: uint16
-        units: "%"
-        default: 5
-        min: 1
-        max: 20
-        validation: "in [1, 20]"
-        storage_order: 31
-        notes: Max |Vpack - Vbat| / Vbat × 100 allowed after precharge
-
-  # ─── Balancing (8 bytes, offset 116) ─────────────────────────────────────
+  # ─── Balancing (8 bytes, offset 108) ─────────────────────────────────────
 
   balancing:
     fields:
       - name: balance_on_time_ms
-        offset: 116
+        offset: 108
         size: 4
         type: uint32
         units: ms
@@ -376,10 +337,10 @@ sections:
         min: 100
         max: 30000
         validation: "> 0"
-        storage_order: 32
+        storage_order: 29
 
       - name: balance_off_time_ms
-        offset: 120
+        offset: 112
         size: 4
         type: uint32
         units: ms
@@ -387,14 +348,14 @@ sections:
         min: 100
         max: 30000
         validation: "> 0"
-        storage_order: 33
+        storage_order: 30
 
-  # ─── Temperature Measurement (4 bytes, offset 124) ───────────────────────
+  # ─── Temperature Measurement (4 bytes, offset 116) ───────────────────────
 
   temp_measurement:
     fields:
       - name: temp_settle_time_ms
-        offset: 124
+        offset: 116
         size: 2
         type: uint16
         units: ms
@@ -406,19 +367,19 @@ sections:
         notes: OPEN_QUESTION — validate settle time with Enepaq sensor datasheet
 
       - name: reserved_temp_params
-        offset: 126
+        offset: 118
         size: 2
         type: uint16
         default: 0
         validation: "== 0"
-        storage_order: 35
+        storage_order: 31
 
-  # ─── Stale Data Timeout (4 bytes, offset 128) ────────────────────────────
+  # ─── Stale Data Timeout (4 bytes, offset 120) ────────────────────────────
 
   timing:
     fields:
       - name: stale_data_timeout_ms
-        offset: 128
+        offset: 120
         size: 4
         type: uint32
         units: ms
@@ -426,9 +387,9 @@ sections:
         min: 100
         max: 5000
         validation: "> 0"
-        storage_order: 36
+        storage_order: 32
 
-  # ─── Masks (30 bytes, offset 132) ────────────────────────────────────────
+  # ─── Masks (30 bytes, offset 124) ────────────────────────────────────────
 
   masks:
     notes: >
@@ -437,37 +398,37 @@ sections:
       Bits 75–79 must be zero.
     fields:
       - name: required_cell_mask
-        offset: 132
+        offset: 124
         size: 10
         type: uint8[10]
         default: 0xFFFFFFFFFFFFFFFFFFFF  # all 75 bits set (last byte 0x7F)
         validation: "bits [75..79] must be 0; i.e., byte[9] & 0xF8 == 0"
-        storage_order: 37
+        storage_order: 33
         notes: Cells not in mask are excluded from permission gating
 
       - name: required_temp_mask
-        offset: 142
+        offset: 134
         size: 10
         type: uint8[10]
         default: 0xFFFFFFFFFFFFFFFFFFFF
         validation: "bits [75..79] must be 0"
-        storage_order: 38
+        storage_order: 34
 
       - name: balance_allowed_mask
-        offset: 152
+        offset: 144
         size: 10
         type: uint8[10]
         default: 0xFFFFFFFFFFFFFFFFFFFF
         validation: "bits [75..79] must be 0"
-        storage_order: 39
+        storage_order: 35
         notes: Only cells with corresponding bit set may be balanced
 
-  # ─── Calibration (18 bytes, offset 162) ──────────────────────────────────
+  # ─── Calibration (18 bytes, offset 154) ──────────────────────────────────
 
   calibration:
     fields:
       - name: vpack_gain_x1000
-        offset: 162
+        offset: 154
         size: 4
         type: uint32
         units: "dimensionless × 1000"
@@ -475,7 +436,7 @@ sections:
         min: 100
         max: 200000
         validation: "> 0"
-        storage_order: 40
+        storage_order: 36
         notes: >
           Vpack_mV = (adc_raw / 4096) × VREF_mV × gain / 1000 + offset.
           Signal chain: Load+ → 4×470kΩ series ÷ 1kΩ → AMC1301 (gain 8.2) →
@@ -484,17 +445,17 @@ sections:
           Refine with bench calibration.
 
       - name: vpack_offset_mv
-        offset: 166
+        offset: 158
         size: 4
         type: int32
         units: mV
         default: 0
         min: -5000
         max: 5000
-        storage_order: 41
+        storage_order: 37
 
       - name: vbat_gain_x1000
-        offset: 170
+        offset: 162
         size: 2
         type: uint16
         units: "dimensionless × 1000"
@@ -502,23 +463,23 @@ sections:
         min: 100
         max: 10000
         validation: "> 0"
-        storage_order: 42
+        storage_order: 38
         notes: >
           Signal chain: Vbat → R43/R44 (3.3kΩ/3.3kΩ, ÷2) → ISL28022 Vbus.
           Gain = 2 (undoes the ÷2 divider). Refine with bench calibration.
 
       - name: vbat_offset_mv
-        offset: 172
+        offset: 164
         size: 2
         type: int16
         units: mV
         default: 0
         min: -5000
         max: 5000
-        storage_order: 43
+        storage_order: 39
 
       - name: current_gain_x1000
-        offset: 174
+        offset: 166
         size: 4
         type: uint32
         units: "dimensionless × 1000"
@@ -526,28 +487,28 @@ sections:
         min: 100
         max: 10000000
         validation: "> 0"
-        storage_order: 44
+        storage_order: 40
         notes: >
           Signal chain: 0.1 mΩ shunt → AMC1302 (gain ≈40) → ÷7.6 attenuator →
           ISL28022 Vin+/Vin−. Theoretical pre-calibration value ≈ 1,855,000.
           Must be uint32 — uint16 cannot represent the required value.
 
       - name: current_offset_ma
-        offset: 178
+        offset: 170
         size: 2
         type: int16
         units: mA
         default: 0
         min: -1000
         max: 1000
-        storage_order: 45
+        storage_order: 41
 
-  # ─── CAN / Communication (8 bytes, offset 180) ───────────────────────────
+  # ─── CAN / Communication (8 bytes, offset 172) ───────────────────────────
 
   communication:
     fields:
       - name: can_watchdog_timeout_ms
-        offset: 180
+        offset: 172
         size: 4
         type: uint32
         units: ms
@@ -555,38 +516,54 @@ sections:
         min: 0
         max: 60000
         validation: "0 = disabled"
-        storage_order: 46
+        storage_order: 42
 
       - name: can_base_id
-        offset: 184
+        offset: 176
         size: 2
         type: uint16
         default: 0x0500
         min: 0x000
         max: 0x7FF
         validation: "<= 0x7FF"
-        storage_order: 47
+        storage_order: 43
         notes: CAN 11-bit base message ID for BMS telemetry
 
       - name: reserved_can
-        offset: 186
+        offset: 178
         size: 2
         type: uint16
         default: 0
         validation: "== 0"
-        storage_order: 48
+        storage_order: 44
 
-  # ─── Reserved (38 bytes, offset 188) ─────────────────────────────────────
+  # ─── Capacity (4 bytes, offset 180) ──────────────────────────────────────
+
+  capacity:
+    fields:
+      - name: capacity_mah
+        offset: 180
+        size: 4
+        type: uint32
+        units: mAh
+        default: 100000
+        min: 1000
+        max: 1000000
+        validation: "> 0"
+        storage_order: 45
+        notes: Pack capacity; used for SOC coulomb counting
+
+  # ─── Reserved (42 bytes, offset 184) ─────────────────────────────────────
 
   reserved_end:
     fields:
       - name: reserved
-        offset: 186
-        size: 40
-        type: uint8[40]
+        offset: 184
+        size: 42
+        type: uint8[42]
         default: all_zeros
         validation: "all bytes == 0x00"
-        storage_order: 49
+        storage_order: 46
         notes: For future schema expansion
 
 # ─── Validation Relationships ─────────────────────────────────────────────────

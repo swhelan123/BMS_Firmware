@@ -11,11 +11,10 @@
 typedef enum {
     BMS_STATE_INIT          = 0,   /* startup, hardware not yet validated */
     BMS_STATE_STANDBY       = 1,   /* idle; MasterOk (health) asserted, no charge/discharge */
-    BMS_STATE_PRECHARGE     = 2,   /* precharge contactor sequence */
-    BMS_STATE_DISCHARGE     = 3,   /* discharge path active */
-    BMS_STATE_CHARGE        = 4,   /* charge path active */
-    BMS_STATE_FAULT         = 5,   /* fatal or blocking fault present */
-    BMS_STATE_SHUTDOWN      = 6,   /* power-down sequence */
+    BMS_STATE_DISCHARGE     = 2,   /* discharge path active */
+    BMS_STATE_CHARGE        = 3,   /* charge path active */
+    BMS_STATE_FAULT         = 4,   /* fatal or blocking fault present */
+    BMS_STATE_SHUTDOWN      = 5,   /* power-down sequence */
 } BmsState;
 
 /* ── Chain identifiers ────────────────────────────────────────────────────── */
@@ -93,19 +92,17 @@ typedef enum {
     FAULT_BIT_TEMP_COVERAGE              = 10,  /* Required temp sensors invalid — blocks all */
     FAULT_BIT_VBAT_INVALID               = 11,  /* ISL28022 read fail — blocks all */
     FAULT_BIT_VPACK_INVALID              = 12,  /* ADC read fail — blocks discharge+master_ok */
-    FAULT_BIT_PRECHARGE_TIMEOUT          = 13,  /* Precharge timed out — blocks master_ok */
-    FAULT_BIT_PRECHARGE_DELTA            = 14,  /* Vpack/Vbat delta after precharge — blocks discharge+master_ok */
-    FAULT_BIT_ISOSPI_CELL                = 15,  /* CELL chain comms error — blocks all */
-    FAULT_BIT_ISOSPI_TEMP                = 16,  /* TEMP chain comms error — blocks all */
-    FAULT_BIT_I2C_ISL28022               = 17,  /* ISL28022 I2C error — blocks all */
-    FAULT_BIT_WATCHDOG                   = 18,  /* IWDG fired — FATAL — blocks all */
-    FAULT_BIT_CONFIG_INVALID             = 19,  /* Stored config invalid — blocks all */
-    FAULT_BIT_OVERCURRENT                = 20,  /* |I| > overcurrent_hard_ma — blocks all */
-    FAULT_BIT_BALANCE_TEMP_VIOLATION     = 21,  /* Temp exceeded balance inhibit — no blocks */
-    FAULT_BIT_TEMP_CHAIN_BALANCE_ATTEMPT = 22,  /* DCC write to TEMP chain — FATAL */
-    FAULT_BIT_TEMP_COLD_CHARGE           = 23,  /* Temp < cold charge limit — blocks charge */
-    FAULT_BIT_TEMP_COLD_DISCHARGE        = 24,  /* Temp < cold discharge limit — warning */
-    /* bits 25–63 reserved */
+    FAULT_BIT_ISOSPI_CELL                = 13,  /* CELL chain comms error — blocks all */
+    FAULT_BIT_ISOSPI_TEMP                = 14,  /* TEMP chain comms error — blocks all */
+    FAULT_BIT_I2C_ISL28022               = 15,  /* ISL28022 I2C error — blocks all */
+    FAULT_BIT_WATCHDOG                   = 16,  /* IWDG fired — FATAL — blocks all */
+    FAULT_BIT_CONFIG_INVALID             = 17,  /* Stored config invalid — blocks all */
+    FAULT_BIT_OVERCURRENT                = 18,  /* |I| > overcurrent_hard_ma — blocks all */
+    FAULT_BIT_BALANCE_TEMP_VIOLATION     = 19,  /* Temp exceeded balance inhibit — no blocks */
+    FAULT_BIT_TEMP_CHAIN_BALANCE_ATTEMPT = 20,  /* DCC write to TEMP chain — FATAL */
+    FAULT_BIT_TEMP_COLD_CHARGE           = 21,  /* Temp < cold charge limit — blocks charge */
+    FAULT_BIT_TEMP_COLD_DISCHARGE        = 22,  /* Temp < cold discharge limit — warning */
+    /* bits 23–63 reserved */
 } FaultBit;
 
 #define FAULT_MASK(bit)   ((uint64_t)1u << (bit))
@@ -130,8 +127,6 @@ typedef enum {
      FAULT_MASK(FAULT_BIT_TEMP_OVER_CHARGE)           | \
      FAULT_MASK(FAULT_BIT_TEMP_OVER_DISCHARGE)        | \
      FAULT_MASK(FAULT_BIT_TEMP_OVER_ABS)              | \
-     FAULT_MASK(FAULT_BIT_PRECHARGE_TIMEOUT)          | \
-     FAULT_MASK(FAULT_BIT_PRECHARGE_DELTA)            | \
      FAULT_MASK(FAULT_BIT_WATCHDOG)                   | \
      FAULT_MASK(FAULT_BIT_OVERCURRENT)                | \
      FAULT_MASK(FAULT_BIT_BALANCE_TEMP_VIOLATION)     | \
@@ -148,8 +143,6 @@ typedef enum {
      FAULT_MASK(FAULT_BIT_TEMP_COVERAGE)     | \
      FAULT_MASK(FAULT_BIT_VBAT_INVALID)      | \
      FAULT_MASK(FAULT_BIT_VPACK_INVALID)     | \
-     FAULT_MASK(FAULT_BIT_PRECHARGE_TIMEOUT) | \
-     FAULT_MASK(FAULT_BIT_PRECHARGE_DELTA)   | \
      FAULT_MASK(FAULT_BIT_ISOSPI_CELL)       | \
      FAULT_MASK(FAULT_BIT_ISOSPI_TEMP)       | \
      FAULT_MASK(FAULT_BIT_I2C_ISL28022)      | \
@@ -170,7 +163,6 @@ typedef enum {
      FAULT_MASK(FAULT_BIT_TEMP_COVERAGE)         | \
      FAULT_MASK(FAULT_BIT_VBAT_INVALID)          | \
      FAULT_MASK(FAULT_BIT_VPACK_INVALID)         | \
-     FAULT_MASK(FAULT_BIT_PRECHARGE_DELTA)       | \
      FAULT_MASK(FAULT_BIT_ISOSPI_CELL)           | \
      FAULT_MASK(FAULT_BIT_ISOSPI_TEMP)           | \
      FAULT_MASK(FAULT_BIT_I2C_ISL28022)          | \

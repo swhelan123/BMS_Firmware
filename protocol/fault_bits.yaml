@@ -166,30 +166,6 @@ faults:
     ui_text: "Vpack measurement invalid"
 
   - bit: 13
-    name: FAULT_PRECHARGE_TIMEOUT
-    severity: ERROR
-    latching: true
-    source: bms_state
-    condition: "Vpack did not reach precharge_pct% of Vbat within precharge_timeout_ms"
-    permission_effect:
-      blocks: [master_ok]
-    balancing_effect: none
-    ui_text: "Precharge timeout"
-    ui_description: "Load-side voltage did not rise to target within the allowed time."
-
-  - bit: 14
-    name: FAULT_PRECHARGE_DELTA
-    severity: ERROR
-    latching: true
-    source: bms_state
-    condition: "|Vpack - Vbat| / Vbat > precharge_delta_max_pct after precharge completion"
-    permission_effect:
-      blocks: [master_ok, discharge_perm]
-    balancing_effect: none
-    ui_text: "Precharge voltage mismatch"
-    ui_description: "After precharge, Vpack and Vbat differ by more than the allowed delta."
-
-  - bit: 15
     name: FAULT_ISOSPI_CELL
     severity: ERROR
     latching: false
@@ -200,7 +176,7 @@ faults:
     balancing_effect: disabled
     ui_text: "CELL isoSPI communication error"
 
-  - bit: 16
+  - bit: 14
     name: FAULT_ISOSPI_TEMP
     severity: ERROR
     latching: false
@@ -211,7 +187,7 @@ faults:
     balancing_effect: none
     ui_text: "TEMP isoSPI communication error"
 
-  - bit: 17
+  - bit: 15
     name: FAULT_I2C_ISL28022
     severity: ERROR
     latching: false
@@ -222,7 +198,7 @@ faults:
     balancing_effect: none
     ui_text: "ISL28022 I2C communication error"
 
-  - bit: 18
+  - bit: 16
     name: FAULT_WATCHDOG
     severity: FATAL
     latching: true
@@ -235,7 +211,7 @@ faults:
     ui_description: "MCU was reset by IWDG. Indicates main loop stall or firmware fault."
     notes: "Latched at boot if reset cause was IWDG. Blocks all permissions until explicitly cleared."
 
-  - bit: 19
+  - bit: 17
     name: FAULT_CONFIG_INVALID
     severity: ERROR
     latching: true
@@ -247,7 +223,7 @@ faults:
     ui_text: "Configuration invalid"
     ui_description: "Stored configuration failed validation. Write a valid config via the desktop tool."
 
-  - bit: 20
+  - bit: 18
     name: FAULT_OVERCURRENT
     severity: CRITICAL
     latching: true
@@ -259,7 +235,7 @@ faults:
     ui_text: "Overcurrent"
     ui_description: "Battery current exceeded the hard overcurrent limit."
 
-  - bit: 21
+  - bit: 19
     name: FAULT_BALANCE_TEMP_VIOLATION
     severity: ERROR
     latching: true
@@ -270,7 +246,7 @@ faults:
     balancing_effect: disabled
     ui_text: "Balancing inhibited — over-temperature"
 
-  - bit: 22
+  - bit: 20
     name: FAULT_TEMP_CHAIN_BALANCE_ATTEMPT
     severity: FATAL
     latching: true
@@ -282,7 +258,7 @@ faults:
     ui_text: "CRITICAL: Balance write to TEMP chain attempted"
     ui_description: "Firmware error: balancing write was directed at TEMP chain. This should never occur."
 
-  - bit: 23
+  - bit: 21
     name: FAULT_TEMP_COLD_CHARGE
     severity: ERROR
     latching: false
@@ -293,7 +269,7 @@ faults:
     balancing_effect: none
     ui_text: "Temperature too cold for charging"
 
-  - bit: 24
+  - bit: 22
     name: FAULT_TEMP_COLD_DISCHARGE
     severity: WARNING
     latching: false
@@ -304,6 +280,6 @@ faults:
     balancing_effect: none
     ui_text: "Temperature too cold — discharge caution"
 
-  - bits: [25, 63]
+  - bits: [23, 63]
     name: RESERVED
     notes: Reserved for future use. Must be 0 in all current firmware.

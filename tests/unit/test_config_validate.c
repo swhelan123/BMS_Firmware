@@ -68,7 +68,7 @@ void test_validate_mask_top_bits_set_fails(void) {
     cfg.config_crc32 = 0; cfg.config_crc32 = bms_config_compute_crc(&cfg);
     uint16_t err;
     TEST_ASSERT_EQUAL(BMS_ERR_CONFIG_INVALID, bms_config_validate(&cfg, &err));
-    TEST_ASSERT_EQUAL(132u, err); /* required_cell_mask offset */
+    TEST_ASSERT_EQUAL(124u, err); /* required_cell_mask offset */
 }
 
 void test_validate_invalid_generation_fails(void) {

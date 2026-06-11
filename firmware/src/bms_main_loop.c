@@ -38,8 +38,7 @@ static void kick_iwdg(void) {
 /* Sample CHARGE_DETECT, debounce it, and feed the state machine inputs.
  * Vehicle-mode policy: discharge is requested whenever no charger is
  * present — the BMS grants permissions as soon as it is healthy, and the
- * vehicle-side shutdown circuit / precharge sequence controls actual
- * energization. */
+ * vehicle-side shutdown circuit controls actual energization. */
 static void update_state_inputs(uint32_t now) {
     bool raw = board_inputs_charge_detect();
     if (raw != s_cd_last_raw) {

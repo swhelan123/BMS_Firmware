@@ -2,7 +2,6 @@
  *
  * Clock: ADC12 clock via RCC_AHBENR_ADC12EN. PLLCLK/1 as ADCCLK via RCC_CFGR2.
  * Mode: single-conversion, 12-bit, software-triggered.
- * OQ-ADC: confirm VREF and resistor divider ratio before scaling in pack cycle.
  */
 #include "board_adc.h"
 #include "board_pins.h"
