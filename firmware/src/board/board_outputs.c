@@ -37,9 +37,21 @@ static BmsOutputsBitmask s_state;
 
 /* ── API ──────────────────────────────────────────────────────────────────── */
 
+/* Configure one pin as a push-pull output (MODER = 01). */
+static inline void gpio_make_output(GPIO_TypeDef *port, uint32_t pin) {
+    port->MODER = (port->MODER & ~(3u << (pin * 2u)))
+                  | (GPIO_MODER_OUTPUT << (pin * 2u));
+}
+
 void board_outputs_init_safe(void) {
-    /* All permission outputs start inactive (MCU LOW).
-     * GPIO clock must be enabled by board_clock_init() before this is called. */
+    /* This runs before board_clock_init() (see main.c) so it must enable the
+     * GPIOB peripheral clock itself — AHB GPIO clocks are gated OFF at reset
+     * on STM32F3; BSRR/MODER writes are silently lost otherwise. */
+    RCC->AHBENR |= RCC_AHBENR_GPIOBEN;
+    (void)RCC->AHBENR; /* read-back: ensure clock is up before register writes */
+
+    /* Drive all permission outputs inactive (MCU LOW) FIRST, so the pins
+     * present the safe level the instant MODER switches them to output. */
     gpio_clear_pin(OUTPUT_PORT_B, PIN_MASTER_OK);
     gpio_clear_pin(OUTPUT_PORT_B, PIN_DISCHARGE_ENABLE);
     gpio_clear_pin(OUTPUT_PORT_B, PIN_CHARGE_ENABLE);
@@ -49,6 +61,16 @@ void board_outputs_init_safe(void) {
     /* PowerEnable is asserted here to keep the board alive after init.
      * It is only deasserted as the last step in the shutdown sequence. */
     gpio_set_pin(OUTPUT_PORT_B, PIN_POWER_ENABLE);
+
+    /* Now switch the pins to output mode. Note PB3 (POWER_LED) defaults to
+     * JTDO (AF mode) at reset and must be reclaimed explicitly. */
+    gpio_make_output(OUTPUT_PORT_B, PIN_MASTER_OK);
+    gpio_make_output(OUTPUT_PORT_B, PIN_DISCHARGE_ENABLE);
+    gpio_make_output(OUTPUT_PORT_B, PIN_CHARGE_ENABLE);
+    gpio_make_output(OUTPUT_PORT_B, PIN_CHARGER_SAFETY);
+    gpio_make_output(OUTPUT_PORT_B, PIN_LED0);
+    gpio_make_output(OUTPUT_PORT_B, PIN_POWER_LED);
+    gpio_make_output(OUTPUT_PORT_B, PIN_POWER_ENABLE);
 
     s_state = 0;
 }

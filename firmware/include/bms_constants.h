@@ -106,6 +106,21 @@
 #define MAIN_LOOP_PERIOD_MS             (10u)
 #define IWDG_TIMEOUT_MS                 (500u)
 
+/* ── State machine / inputs ──────────────────────────────────────────────── */
+/* Charge-detect debounce: GPIO level must be stable this long before the
+ * state machine sees the change. */
+#define CHARGE_DETECT_DEBOUNCE_MS       (50u)
+
+/* Precharge is considered "begun" (timeout timer starts) once Vpack rises
+ * above this percentage of Vbat. Below it the vehicle-side shutdown circuit
+ * is open and the BMS waits in STANDBY without faulting. */
+#define PRECHARGE_BEGIN_PCT             (10u)
+
+/* Periodic open-wire scan interval. Scans run only in STANDBY and CHARGE
+ * states: ADOW conversions perturb cell readings, and a false trip while
+ * the vehicle is being driven must be avoided. */
+#define OPENWIRE_SCAN_PERIOD_MS         (10000u)
+
 /* ── LTC6812 limits ───────────────────────────────────────────────────────── */
 #define LTC6812_CELL_VOLTAGE_LSB_UV     (100u)   /* 100 µV per LSB */
 #define LTC6812_MAX_RETRIES             (3u)

@@ -37,3 +37,14 @@ uint64_t bms_faults_clear_latched(uint64_t mask);
 
 /* Set a specific fault bit directly (for internal error reporting). */
 void bms_faults_set(FaultBit bit);
+
+/* Latch a fault bit without marking it active. For historical conditions
+ * (e.g. IWDG reset detected at boot) that must block permissions until
+ * explicitly cleared via PKT_CLEAR_LATCHED_FAULTS. */
+void bms_faults_set_latched(FaultBit bit);
+
+/* Apply an open-wire scan result: sets/clears FAULT_BIT_CELL_OPENWIRE based
+ * on whether any cell in required_cell_mask is flagged open. Latches per
+ * fault_bits.yaml. Call only with a scan that completed successfully. */
+void bms_faults_apply_openwire(const bool detected[TOTAL_CELL_COUNT],
+                                const BmsConfig *cfg);

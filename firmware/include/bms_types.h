@@ -10,7 +10,7 @@
 /* ── BMS state machine ────────────────────────────────────────────────────── */
 typedef enum {
     BMS_STATE_INIT          = 0,   /* startup, hardware not yet validated */
-    BMS_STATE_STANDBY       = 1,   /* idle, no permissions granted */
+    BMS_STATE_STANDBY       = 1,   /* idle; MasterOk (health) asserted, no charge/discharge */
     BMS_STATE_PRECHARGE     = 2,   /* precharge contactor sequence */
     BMS_STATE_DISCHARGE     = 3,   /* discharge path active */
     BMS_STATE_CHARGE        = 4,   /* charge path active */
@@ -110,9 +110,31 @@ typedef enum {
 
 #define FAULT_MASK(bit)   ((uint64_t)1u << (bit))
 
-/* Fatal: firmware bug or catastrophic hardware event → IWDG halt */
+/* Fatal: firmware bug or catastrophic hardware event → IWDG halt.
+ * FAULT_BIT_WATCHDOG is deliberately NOT in this mask: it is set (latched)
+ * after an IWDG-caused reset is detected at boot. Including it here would
+ * re-enter the fatal halt path on every boot after a watchdog reset and
+ * produce an endless reset loop. It still blocks all permission outputs
+ * via the blocking masks below until explicitly cleared. */
 #define FAULT_FATAL_MASK \
-    (FAULT_MASK(FAULT_BIT_WATCHDOG)                   | \
+    (FAULT_MASK(FAULT_BIT_TEMP_CHAIN_BALANCE_ATTEMPT))
+
+/* Latching faults — must match `latching: true` bits in protocol/fault_bits.yaml.
+ * A latching fault remains in the latched word (and keeps blocking its
+ * permissions) until explicitly cleared via PKT_CLEAR_LATCHED_FAULTS.
+ * Non-latching faults track their active condition only. */
+#define FAULT_LATCHING_MASK \
+    (FAULT_MASK(FAULT_BIT_CELL_OV)                    | \
+     FAULT_MASK(FAULT_BIT_CELL_UV)                    | \
+     FAULT_MASK(FAULT_BIT_CELL_OPENWIRE)              | \
+     FAULT_MASK(FAULT_BIT_TEMP_OVER_CHARGE)           | \
+     FAULT_MASK(FAULT_BIT_TEMP_OVER_DISCHARGE)        | \
+     FAULT_MASK(FAULT_BIT_TEMP_OVER_ABS)              | \
+     FAULT_MASK(FAULT_BIT_PRECHARGE_TIMEOUT)          | \
+     FAULT_MASK(FAULT_BIT_PRECHARGE_DELTA)            | \
+     FAULT_MASK(FAULT_BIT_WATCHDOG)                   | \
+     FAULT_MASK(FAULT_BIT_OVERCURRENT)                | \
+     FAULT_MASK(FAULT_BIT_BALANCE_TEMP_VIOLATION)     | \
      FAULT_MASK(FAULT_BIT_TEMP_CHAIN_BALANCE_ATTEMPT))
 
 /* Blocks master_ok output */

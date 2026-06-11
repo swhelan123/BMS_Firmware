@@ -17,7 +17,9 @@ static uint8_t s_pec_consec_temp;
 static inline void set_active(FaultBit bit, bool cond) {
     if (cond) {
         s_active  |= FAULT_MASK(bit);
-        s_latched |= FAULT_MASK(bit);
+        /* Only faults marked latching:true in fault_bits.yaml stick in the
+         * latched word; everything else tracks its active condition only. */
+        s_latched |= FAULT_MASK(bit) & FAULT_LATCHING_MASK;
     } else {
         s_active &= ~FAULT_MASK(bit);
     }
@@ -120,16 +122,14 @@ void bms_faults_report_pec_error(BmsChain chain) {
             s_pec_consec_cell++;
         }
         if (s_pec_consec_cell >= LTC6812_MAX_RETRIES) {
-            s_active  |= FAULT_MASK(FAULT_BIT_ISOSPI_CELL);
-            s_latched |= FAULT_MASK(FAULT_BIT_ISOSPI_CELL);
+            set_active(FAULT_BIT_ISOSPI_CELL, true);
         }
     } else {
         if (s_pec_consec_temp < LTC6812_MAX_RETRIES) {
             s_pec_consec_temp++;
         }
         if (s_pec_consec_temp >= LTC6812_MAX_RETRIES) {
-            s_active  |= FAULT_MASK(FAULT_BIT_ISOSPI_TEMP);
-            s_latched |= FAULT_MASK(FAULT_BIT_ISOSPI_TEMP);
+            set_active(FAULT_BIT_ISOSPI_TEMP, true);
         }
     }
 }
@@ -145,8 +145,7 @@ void bms_faults_clear_pec_counter(BmsChain chain) {
 }
 
 void bms_faults_report_i2c_error(void) {
-    s_active  |= FAULT_MASK(FAULT_BIT_I2C_ISL28022);
-    s_latched |= FAULT_MASK(FAULT_BIT_I2C_ISL28022);
+    set_active(FAULT_BIT_I2C_ISL28022, true);
 }
 
 void bms_faults_clear_i2c_error(void) {
@@ -163,6 +162,25 @@ uint64_t bms_faults_clear_latched(uint64_t mask) {
 }
 
 void bms_faults_set(FaultBit bit) {
-    s_active  |= FAULT_MASK(bit);
+    set_active(bit, true);
+}
+
+void bms_faults_set_latched(FaultBit bit) {
+    /* Latch a fault without marking it active. Used for conditions detected
+     * after the fact (e.g. FAULT_BIT_WATCHDOG when an IWDG-caused reset is
+     * found at boot): the condition itself is historical, but the fault must
+     * block permissions until explicitly acknowledged and cleared. */
     s_latched |= FAULT_MASK(bit);
+}
+
+void bms_faults_apply_openwire(const bool detected[TOTAL_CELL_COUNT],
+                                const BmsConfig *cfg) {
+    bool any_open = false;
+    for (uint8_t i = 0; i < TOTAL_CELL_COUNT; i++) {
+        if (!(cfg->required_cell_mask[i / 8u] & (1u << (i % 8u)))) { continue; }
+        if (detected[i]) { any_open = true; break; }
+    }
+    /* Latching per fault_bits.yaml: active clears on a clean scan, latched
+     * persists until explicitly cleared. */
+    set_active(FAULT_BIT_CELL_OPENWIRE, any_open);
 }

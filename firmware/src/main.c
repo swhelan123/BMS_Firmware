@@ -8,6 +8,7 @@
  *   5. bms_main_loop_run() — never returns
  */
 #include "board_outputs.h"
+#include "board_inputs.h"
 #include "board_clock.h"
 #include "board_uart.h"
 #include "board_spi.h"
@@ -34,6 +35,7 @@ int main(void) {
     board_clock_init();
 
     /* 3. Peripheral init */
+    board_inputs_init();
     board_uart_init();
     board_spi_init();
     board_i2c_init();

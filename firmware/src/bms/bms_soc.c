@@ -60,13 +60,14 @@ void bms_soc_maybe_init_from_cells(const CellSnapshot *cells, uint32_t capacity_
     if (cells->overall != MEAS_VALID)      return;
     if (capacity_mah == 0u)               return;
 
-    /* Weakest cell determines pack SOC */
-    uint16_t min_mv = cells->mv[0];
-    for (uint8_t i = 1u; i < TOTAL_CELL_COUNT; i++) {
+    /* Weakest VALID cell determines pack SOC */
+    uint16_t min_mv = UINT16_MAX;
+    for (uint8_t i = 0u; i < TOTAL_CELL_COUNT; i++) {
         if (cells->valid[i] && cells->mv[i] < min_mv) {
             min_mv = cells->mv[i];
         }
     }
+    if (min_mv == UINT16_MAX) { return; }  /* no valid cell yet */
 
     int16_t soc_x10    = ocv_to_soc_x10(min_mv);
     s_capacity_uAh     = (int64_t)capacity_mah * 1000LL;

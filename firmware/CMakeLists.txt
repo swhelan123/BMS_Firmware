@@ -13,6 +13,7 @@ option(BMS_BUILD_TESTS "Build host-compiled unit tests (native)" OFF)
 set(BOARD_SOURCES
     src/board/board_clock.c
     src/board/board_outputs.c
+    src/board/board_inputs.c
     src/board/board_uart.c
     src/board/board_spi.c
     src/board/board_i2c.c
@@ -37,6 +38,7 @@ set(BMS_SOURCES
     src/bms/bms_protocol.c
     src/bms/bms_diagnostics.c
     src/bms/bms_can.c
+    src/bms/bms_soc.c
     src/bms_main_loop.c
     src/main.c
 )

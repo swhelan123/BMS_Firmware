@@ -225,7 +225,7 @@ faults:
   - bit: 18
     name: FAULT_WATCHDOG
     severity: FATAL
-    latching: false
+    latching: true
     source: board_clock
     condition: "IWDG fired (recorded from RCC reset flags at boot)"
     permission_effect:
@@ -233,7 +233,7 @@ faults:
     balancing_effect: disabled
     ui_text: "Watchdog reset occurred"
     ui_description: "MCU was reset by IWDG. Indicates main loop stall or firmware fault."
-    notes: "This bit is set at boot if reset cause was IWDG. It is active until explicitly cleared."
+    notes: "Latched at boot if reset cause was IWDG. Blocks all permissions until explicitly cleared."
 
   - bit: 19
     name: FAULT_CONFIG_INVALID

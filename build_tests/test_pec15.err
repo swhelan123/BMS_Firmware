@@ -1,2 +1,0 @@
-clang: error: no such file or directory: 'firmware/src/bms/bms_config.c firmware/src/bms/bms_faults.c   firmware/src/bms/bms_outputs.c firmware/src/bms/bms_balance.c   firmware/src/drivers/isospi.c firmware/src/drivers/ltc6812.c'
-clang: error: no such file or directory: 'tests/mock_bsp/mock_board_spi.c tests/mock_bsp/mock_board_uart.c   tests/mock_bsp/mock_board_outputs.c tests/mock_bsp/mock_board_clock.c   tests/mock_bsp/mock_board_flash.c'

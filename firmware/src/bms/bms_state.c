@@ -2,14 +2,25 @@
  *
  * Transition summary:
  *   INIT      → STANDBY  : immediately on first tick
- *   STANDBY   → PRECHARGE: s_discharge_requested set, no discharge-blocking faults
+ *   STANDBY   → PRECHARGE: discharge requested, no discharge-blocking faults,
+ *                          AND Vpack risen above PRECHARGE_BEGIN_PCT of Vbat
+ *                          (i.e. the vehicle-side precharge has actually started;
+ *                          the timeout timer starts here, not at power-on)
  *   STANDBY   → CHARGE   : charger present, no charge-blocking faults
  *   PRECHARGE → DISCHARGE: Vpack within precharge_delta_max_pct of Vbat
- *   PRECHARGE → STANDBY  : timeout (sets FAULT_BIT_PRECHARGE_TIMEOUT)
+ *   PRECHARGE → STANDBY  : Vpack fell back below begin threshold (driver
+ *                          aborted, no fault) OR timeout (sets
+ *                          FAULT_BIT_PRECHARGE_TIMEOUT, latching)
  *   DISCHARGE → STANDBY  : discharge released or discharge-blocking fault clears path
  *   CHARGE    → STANDBY  : charger disconnected or charge-blocking fault
  *   any       → FAULT    : fatal fault active
- *   FAULT     → STANDBY  : all active faults clear
+ *   FAULT     → STANDBY  : all faults (active and latched) clear
+ *
+ * MASTER_OK semantics (per docs/01_hardware_contract.md §11): "BMS is healthy
+ * and operating; system may proceed". It is requested in every operational
+ * state (STANDBY/PRECHARGE/DISCHARGE/CHARGE) and gated by
+ * FAULT_BLOCKS_MASTER_OK_MASK in bms_outputs — so the shutdown-circuit branch
+ * closes whenever the BMS is healthy, and opens on any blocking fault.
  */
 #include "bms_state.h"
 #include "bms_faults.h"
@@ -59,14 +70,26 @@ void bms_state_tick(const CellSnapshot    *cells,
 
     const BmsConfig *cfg = bms_config_get();
 
+    /* Vehicle-side precharge activity: Vpack has risen above
+     * PRECHARGE_BEGIN_PCT of Vbat. Used to start (and quietly abort) the
+     * precharge timeout window. */
+    bool precharge_begun = pack->vpack_valid && pack->vbat_valid &&
+                           pack->vbat_mv > 0 &&
+                           pack->vpack_mv >=
+                               (pack->vbat_mv * (int32_t)PRECHARGE_BEGIN_PCT) / 100;
+
     switch (s_state) {
         case BMS_STATE_INIT:
             s_state = BMS_STATE_STANDBY;
             break;
 
         case BMS_STATE_STANDBY:
+            /* Healthy and idle: MasterOk asserted (health signal). */
+            req_out->want_master_ok = true;
+
             if (s_discharge_requested &&
-                !(active_faults & FAULT_BLOCKS_DISCHARGE_MASK)) {
+                !(active_faults & FAULT_BLOCKS_DISCHARGE_MASK) &&
+                precharge_begun) {
                 s_precharge_start_ms = board_clock_get_ms();
                 s_state = BMS_STATE_PRECHARGE;
             } else if (s_charger_present &&
@@ -91,6 +114,14 @@ void bms_state_tick(const CellSnapshot    *cells,
                 break;
             }
 
+            /* Quiet abort: Vpack fell back below the begin threshold —
+             * the driver opened the shutdown circuit mid-precharge.
+             * Not a fault; return to standby and wait for the next attempt. */
+            if (!precharge_begun) {
+                s_state = BMS_STATE_STANDBY;
+                break;
+            }
+
             /* Check Vpack vs Vbat delta once both are valid. */
             if (pack->vpack_valid && pack->vbat_valid && pack->vbat_mv > 0) {
                 int32_t delta_mv = pack->vbat_mv - pack->vpack_mv;
@@ -99,13 +130,16 @@ void bms_state_tick(const CellSnapshot    *cells,
                 int32_t threshold_mv = (pack->vbat_mv * (int32_t)cfg->precharge_delta_max_pct) / 1000;
                 if (delta_mv <= threshold_mv) {
                     s_state = BMS_STATE_DISCHARGE;
+                    /* Grant discharge in the same tick — a one-tick gap in
+                     * MasterOk would glitch the shutdown circuit LOW. */
+                    req_out->want_master_ok = true;
+                    req_out->want_discharge = true;
+                    break;
                 }
             }
 
-            if (s_state == BMS_STATE_PRECHARGE) {
-                /* Precharge phase: MasterOk only (enables precharge contactor). */
-                req_out->want_master_ok = true;
-            }
+            /* Precharge phase: MasterOk only (enables precharge contactor). */
+            req_out->want_master_ok = true;
             break;
         }
 

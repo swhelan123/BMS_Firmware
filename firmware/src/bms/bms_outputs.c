@@ -5,25 +5,28 @@
 void bms_outputs_apply(const BmsPermissionRequest *req,
                         uint64_t active_faults,
                         uint64_t latched_faults) {
-    (void)latched_faults;
+    /* Latched faults block permissions exactly like active faults: a fault
+     * that latched (e.g. cell OV/UV, overcurrent) keeps its permissions
+     * blocked until explicitly cleared, even after the condition resolves. */
+    uint64_t blocking = active_faults | latched_faults;
 
     /* Fatal faults: deassert everything immediately */
-    if (active_faults & FAULT_FATAL_MASK) {
+    if (blocking & FAULT_FATAL_MASK) {
         board_outputs_disable_all();
         return;
     }
 
     bool master_ok = req->want_master_ok
-                     && !(active_faults & FAULT_BLOCKS_MASTER_OK_MASK);
+                     && !(blocking & FAULT_BLOCKS_MASTER_OK_MASK);
 
     bool discharge = req->want_discharge
-                     && !(active_faults & FAULT_BLOCKS_DISCHARGE_MASK);
+                     && !(blocking & FAULT_BLOCKS_DISCHARGE_MASK);
 
     bool charge    = req->want_charge
-                     && !(active_faults & FAULT_BLOCKS_CHARGE_MASK);
+                     && !(blocking & FAULT_BLOCKS_CHARGE_MASK);
 
     bool charger_safety = req->want_charger_safety
-                          && !(active_faults & FAULT_BLOCKS_CHARGER_SAFETY_MASK);
+                          && !(blocking & FAULT_BLOCKS_CHARGER_SAFETY_MASK);
 
     board_outputs_set_master_ok(master_ok);
     board_outputs_set_discharge_permission(discharge);

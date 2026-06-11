@@ -42,7 +42,7 @@ SECTIONS
     } > FLASH
 
     /* Guarantee we never spill into the application region */
-    ASSERT(. <= 0x08008000, "Bootloader exceeds 32 KB — overlaps application region");
+    ASSERT(. <= 0x08008000, "Bootloader exceeds 32 KB - overlaps application region")
 
     _sidata = LOADADDR(.data);
 

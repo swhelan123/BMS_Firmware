@@ -226,6 +226,55 @@ void test_clear_latched_succeeds_after_active_resolves(void) {
     TEST_ASSERT_FALSE(bms_faults_get_latched() & FAULT_MASK(FAULT_BIT_CELL_UV));
 }
 
+void test_nonlatching_fault_does_not_latch(void) {
+    /* VBAT_INVALID is latching:false — must track active condition only */
+    s_pack.vbat_valid = false;
+    bms_faults_evaluate(&s_cells, &s_temps, &s_pack, &s_cfg);
+    TEST_ASSERT_TRUE(bms_faults_get_active()  & FAULT_MASK(FAULT_BIT_VBAT_INVALID));
+    TEST_ASSERT_FALSE(bms_faults_get_latched() & FAULT_MASK(FAULT_BIT_VBAT_INVALID));
+
+    s_pack.vbat_valid = true;
+    bms_faults_evaluate(&s_cells, &s_temps, &s_pack, &s_cfg);
+    TEST_ASSERT_FALSE(bms_faults_get_active()  & FAULT_MASK(FAULT_BIT_VBAT_INVALID));
+    TEST_ASSERT_FALSE(bms_faults_get_latched() & FAULT_MASK(FAULT_BIT_VBAT_INVALID));
+}
+
+void test_set_latched_is_latched_not_active(void) {
+    bms_faults_set_latched(FAULT_BIT_WATCHDOG);
+    TEST_ASSERT_FALSE(bms_faults_get_active()  & FAULT_MASK(FAULT_BIT_WATCHDOG));
+    TEST_ASSERT_TRUE(bms_faults_get_latched()  & FAULT_MASK(FAULT_BIT_WATCHDOG));
+    /* Clearable because the active condition is not present */
+    uint64_t cleared = bms_faults_clear_latched(FAULT_MASK(FAULT_BIT_WATCHDOG));
+    TEST_ASSERT_NOT_EQUAL(0u, cleared & FAULT_MASK(FAULT_BIT_WATCHDOG));
+    TEST_ASSERT_FALSE(bms_faults_get_latched() & FAULT_MASK(FAULT_BIT_WATCHDOG));
+}
+
+void test_openwire_on_required_cell_latches(void) {
+    bool detected[TOTAL_CELL_COUNT];
+    memset(detected, 0, sizeof(detected));
+    detected[3] = true;  /* cell 3 is in the required mask (setUp enables all) */
+    bms_faults_apply_openwire(detected, &s_cfg);
+    TEST_ASSERT_TRUE(bms_faults_get_active()  & FAULT_MASK(FAULT_BIT_CELL_OPENWIRE));
+    TEST_ASSERT_TRUE(bms_faults_get_latched() & FAULT_MASK(FAULT_BIT_CELL_OPENWIRE));
+
+    /* Clean rescan clears active; latched persists until explicit clear */
+    memset(detected, 0, sizeof(detected));
+    bms_faults_apply_openwire(detected, &s_cfg);
+    TEST_ASSERT_FALSE(bms_faults_get_active()  & FAULT_MASK(FAULT_BIT_CELL_OPENWIRE));
+    TEST_ASSERT_TRUE(bms_faults_get_latched()  & FAULT_MASK(FAULT_BIT_CELL_OPENWIRE));
+    uint64_t cleared = bms_faults_clear_latched(FAULT_MASK(FAULT_BIT_CELL_OPENWIRE));
+    TEST_ASSERT_NOT_EQUAL(0u, cleared & FAULT_MASK(FAULT_BIT_CELL_OPENWIRE));
+}
+
+void test_openwire_on_unrequired_cell_ignored(void) {
+    bool detected[TOTAL_CELL_COUNT];
+    memset(detected, 0, sizeof(detected));
+    memset(s_cfg.required_cell_mask, 0, CONFIG_MASK_BYTES);
+    detected[3] = true;  /* not in required mask → no fault */
+    bms_faults_apply_openwire(detected, &s_cfg);
+    TEST_ASSERT_FALSE(bms_faults_get_active() & FAULT_MASK(FAULT_BIT_CELL_OPENWIRE));
+}
+
 /* ── Entry point ─────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -247,5 +296,9 @@ int main(void) {
     RUN_TEST(test_latched_fault_persists_after_condition_clears);
     RUN_TEST(test_clear_latched_only_when_active_resolved);
     RUN_TEST(test_clear_latched_succeeds_after_active_resolves);
+    RUN_TEST(test_nonlatching_fault_does_not_latch);
+    RUN_TEST(test_set_latched_is_latched_not_active);
+    RUN_TEST(test_openwire_on_required_cell_latches);
+    RUN_TEST(test_openwire_on_unrequired_cell_ignored);
     return UNITY_END();
 }

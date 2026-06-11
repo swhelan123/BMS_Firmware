@@ -88,6 +88,7 @@ fi
 echo ""
 run_test test_protocol_crc     tests/unit/test_protocol_crc.c \
     firmware/src/bms/bms_protocol.c \
+    firmware/src/bms/bms_soc.c \
     tests/mock_bsp/mock_protocol_deps.c
 run_test test_config_validate  tests/unit/test_config_validate.c
 run_test test_config_masks     tests/unit/test_config_masks.c

@@ -102,7 +102,7 @@ Stored as two 64-bit words: `active_faults` and `latched_faults`.
 | 15 | FAULT_ISOSPI_CELL | ERROR | NO | ltc6812 driver | Persistent PEC errors on CELL chain (>N consecutive) |
 | 16 | FAULT_ISOSPI_TEMP | ERROR | NO | ltc6812 driver | Persistent PEC errors on TEMP chain |
 | 17 | FAULT_I2C_ISL28022 | ERROR | NO | isl28022 driver | I2C NACK or timeout on ISL28022 |
-| 18 | FAULT_WATCHDOG | FATAL | NO | board_clock | Software watchdog timeout (logged before reset) |
+| 18 | FAULT_WATCHDOG | FATAL | YES | bms_main_loop | IWDG reset detected at boot (latched until explicitly cleared) |
 | 19 | FAULT_CONFIG_INVALID | ERROR | NO | bms_config | Stored config failed validation at boot |
 | 20 | FAULT_OVERCURRENT | CRITICAL | YES | bms_measurements | |I_batt| > `overcurrent_hard_a` |
 | 21 | FAULT_BALANCE_TEMP_VIOLATION | ERROR | YES | bms_balance | Balancing inhibited by temperature condition |

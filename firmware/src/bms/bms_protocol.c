@@ -269,6 +269,12 @@ static void handle_run_openwire(uint8_t seq) {
     BmsResult r = ltc6812_run_open_wire(BMS_CHAIN_CELL, CELL_IC_COUNT, detected);
     bool valid = (r == BMS_OK);
     bms_diagnostics_set_open_wire(valid, detected);
+    if (valid) {
+        /* Latch FAULT_BIT_CELL_OPENWIRE if any required cell is open —
+         * the on-demand scan must have the same safety effect as the
+         * periodic scan in the main loop. */
+        bms_faults_apply_openwire(detected, bms_config_get());
+    }
     /* Response: status(1) + open_wire_mask(10) = 11 bytes */
     uint8_t resp[11];
     memset(resp, 0, sizeof(resp));

@@ -54,3 +54,4 @@ CTestTestfile.cmake
 .env
 *.pem
 *.key
+build_bootloader/
