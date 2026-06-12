@@ -355,12 +355,21 @@ def main(argv=None) -> int:
     app.setStyleSheet(APP_STYLESHEET)
 
     if args.fake:
+        from ..fake_target.live_simulator import LIVE_MODES, LiveFakeHardware
         from ..fake_target.fake_target import FakeTarget
-        threading.Thread(
-            target=FakeTarget.serve_tcp,
-            args=('127.0.0.1', 65102, args.mode),
-            daemon=True,
-        ).start()
+        if args.mode in LIVE_MODES:
+            threading.Thread(
+                target=LiveFakeHardware.serve_tcp,
+                args=('127.0.0.1', 65102),
+                kwargs={'mode': args.mode},
+                daemon=True,
+            ).start()
+        else:
+            threading.Thread(
+                target=FakeTarget.serve_tcp,
+                args=('127.0.0.1', 65102, args.mode),
+                daemon=True,
+            ).start()
 
     win = BmsMainWindow()
     win.show()

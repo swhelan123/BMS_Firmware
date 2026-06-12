@@ -2,16 +2,21 @@
 # run_gui.sh — launch the BMS Tool desktop GUI.
 #
 # Usage:
-#   ./scripts/run_gui.sh                          # open GUI, connect manually
-#   ./scripts/run_gui.sh --fake                   # auto-start fake target + connect
-#   ./scripts/run_gui.sh --fake --mode cell_uv    # specific simulation mode
-#   ./scripts/run_gui.sh --fake --mode bootloader # test update flow
+#   ./scripts/run_gui.sh                               # open GUI, connect manually
+#   ./scripts/run_gui.sh --fake                        # auto-start fake target + connect
+#   ./scripts/run_gui.sh --fake --mode drive           # live simulation mode
+#   ./scripts/run_gui.sh --fake --mode cell-uv         # static fault mode
+#   ./scripts/run_gui.sh --fake --mode bootloader      # test update flow
 #
 # All unrecognised flags are passed through to the Python GUI entry point.
 #
-# Available --mode values:
+# Live --mode values (cells/temps/SOC evolve over time):
+#   healthy-idle, drive, charge, cell-uv, cell-ov, temp-high,
+#   isospi-fault, openwire-detected, vpack-invalid, bootloader
+#
+# Static --mode values (fixed snapshot):
 #   healthy, safe_invalid, cell_uv, cell_ov, temp_invalid, vpack_invalid,
-#   isospi_fault, config_error, precharge_fault, bootloader,
+#   isospi_fault, config_error, overcurrent_fault, bootloader,
 #   openwire_detected, openwire_pec_fail
 set -euo pipefail
 
@@ -68,7 +73,7 @@ fi
 echo "Launching BMS Tool …"
 if [[ "$USES_FAKE" -eq 1 ]]; then
     echo "  Fake target will start in-process and auto-connect."
-    echo "  Mode: $(echo "$*" | grep -oP '(?<=--mode )\S+' || echo 'healthy')"
+    echo "  Mode: $(echo "$*" | grep -oE '\-\-mode [^ ]+' | sed 's/--mode //' || echo 'healthy')"
 fi
 echo ""
 
