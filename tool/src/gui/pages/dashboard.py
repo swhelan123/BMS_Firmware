@@ -6,9 +6,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal
 
 from ...core.app_state import AppState
-
-_BMS_STATES = {0: "INIT", 1: "STANDBY", 2: "PRECHARGE",
-               3: "DISCHARGE", 4: "CHARGE", 5: "FAULT"}
+from ...protocol.bms_defs import STATE_NAMES as _BMS_STATES
 
 
 def _card(title: str, row: int, grid: QGridLayout) -> QLabel:

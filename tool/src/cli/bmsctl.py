@@ -29,17 +29,9 @@ from tool.src.update.package_parser import parse_and_validate_package, PackageVa
 from tool.src.update.stlink import dry_run_app, detect_programmer
 from tool.src.update.bootloader_updater import BootloaderUpdater, UpdateError
 
-# ── Fault name table (matches protocol/fault_bits.yaml) ──────────────────────
+# ── Fault / state names — single source: tool/src/protocol/bms_defs.py ───────
 
-_FAULT_NAMES = [
-    "CELL_OV", "CELL_UV", "CELL_OV_SOFT", "CELL_UV_SOFT",
-    "CELL_READ_INVALID", "CELL_OPENWIRE", "TEMP_OVER_CHARGE", "TEMP_OVER_DISCHARGE",
-    "TEMP_OVER_ABS", "TEMP_READ_INVALID", "TEMP_COVERAGE", "VBAT_INVALID",
-    "VPACK_INVALID", "PRECHARGE_TIMEOUT", "PRECHARGE_DELTA", "ISOSPI_CELL",
-    "ISOSPI_TEMP", "I2C_ISL28022", "WATCHDOG", "CONFIG_INVALID",
-    "OVERCURRENT", "BALANCE_TEMP_VIOLATION", "TEMP_CHAIN_BALANCE_ATTEMPT",
-    "TEMP_COLD_CHARGE", "TEMP_COLD_DISCHARGE",
-]
+from tool.src.protocol.bms_defs import FAULT_NAMES as _FAULT_NAMES, state_name
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -148,7 +140,7 @@ def cmd_fake_target_self_test(args) -> int:
     passed = failed = 0
     modes = ['healthy', 'cell_uv', 'cell_ov', 'temp_invalid',
              'isospi_fault', 'config_error', 'vpack_invalid',
-             'precharge_fault', 'bootloader', 'safe_invalid']
+             'overcurrent_fault', 'bootloader', 'safe_invalid']
 
     for mode in modes:
         try:
@@ -209,6 +201,7 @@ def cmd_values(args) -> int:
             'vpack_mv':       vs.vpack_mv,
             'i_batt_ma':      vs.i_batt_ma,
             'bms_state':      vs.bms_state,
+            'bms_state_name': state_name(vs.bms_state),
             'active_faults':  f"0x{vs.active_faults:016X}",
             'latched_faults': f"0x{vs.latched_faults:016X}",
             'outputs_state':  f"0x{vs.outputs_state:02X}",
@@ -370,6 +363,36 @@ def cmd_config_apply_ram(args) -> int:
     try:
         ok, err_off, msg = model.apply_config_ram(cfg)
         _out({'ok': ok, 'err_offset': err_off, 'message': msg}, args.json)
+        return 0 if ok else 1
+    except (ProtocolError, TargetRefusedError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    finally:
+        mgr.disconnect()
+
+
+def cmd_config_store(args) -> int:
+    try:
+        blob = Path(args.file).read_bytes()
+    except FileNotFoundError:
+        print(f"error: file not found: {args.file}", file=sys.stderr)
+        return 1
+    cfg = BmsConfig.unpack(blob)
+    ok, err_off, msg = validate_config(cfg)
+    if not ok:
+        print(f"error: offline validation failed at offset 0x{err_off:04X}: {msg}",
+              file=sys.stderr)
+        return 1
+    if not getattr(args, 'yes', False):
+        print("Store config to FLASH (persists across reboots).")
+        answer = input("Proceed? [y/N] ").strip().lower()
+        if answer != 'y':
+            print("aborted")
+            return 1
+    mgr, model = _connect(args)
+    try:
+        ok = model.store_config(cfg)
+        _out({'stored': ok}, args.json)
         return 0 if ok else 1
     except (ProtocolError, TargetRefusedError) as e:
         print(f"error: {e}", file=sys.stderr)
@@ -871,7 +894,7 @@ def build_parser() -> argparse.ArgumentParser:
     ft_run.add_argument('--mode', default='healthy',
                         choices=['healthy', 'cell_uv', 'cell_ov', 'temp_invalid',
                                  'isospi_fault', 'config_error', 'vpack_invalid',
-                                 'precharge_fault', 'bootloader', 'safe_invalid'])
+                                 'overcurrent_fault', 'bootloader', 'safe_invalid'])
     ft_run.add_argument('--bind', default='127.0.0.1:65102', metavar='HOST:PORT')
 
     ft_sub.add_parser('self-test', help='Run fake target self-test suite and exit')
@@ -909,6 +932,12 @@ def build_parser() -> argparse.ArgumentParser:
     p = cfg_sub.add_parser('apply-ram', help='Apply config to target RAM (no flash write)')
     _add_connect_args(p)
     p.add_argument('file')
+
+    p = cfg_sub.add_parser('store', help='Validate and store config to target FLASH (persistent)')
+    _add_connect_args(p)
+    p.add_argument('file')
+    p.add_argument('--yes', '-y', action='store_true',
+                   help='Skip the confirmation prompt')
 
     p = cfg_sub.add_parser('diff', help='Diff two config files')
     p.add_argument('a')
@@ -1057,6 +1086,7 @@ def main(argv=None) -> int:
         if cc == 'validate':       return cmd_config_validate(args)
         if cc == 'read':           return cmd_config_read(args)
         if cc == 'apply-ram':      return cmd_config_apply_ram(args)
+        if cc == 'store':          return cmd_config_store(args)
         if cc == 'diff':           return cmd_config_diff(args)
         if cc == 'export-json':    return cmd_config_export_json(args)
         if cc == 'import-json':    return cmd_config_import_json(args)

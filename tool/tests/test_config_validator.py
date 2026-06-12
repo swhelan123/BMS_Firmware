@@ -5,6 +5,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from tool.src.config.schema import BmsConfig
 from tool.src.config.validator import validate_config
+from tool.src.config.schema import FIELD_OFFSETS
 
 
 def make_valid() -> BmsConfig:
@@ -41,7 +42,7 @@ def test_mask_top_bits_fails():
     cfg.required_cell_mask = bytes(mask)
     ok, off, _ = validate_config(cfg)
     assert not ok
-    assert off == 132
+    assert off == FIELD_OFFSETS['required_cell_mask']
 
 def test_pack_unpack_roundtrip():
     cfg = make_valid()
@@ -76,4 +77,4 @@ def test_can_id_out_of_range_fails():
     cfg.can_base_id = 0x800  # > 11-bit max
     ok, off, _ = validate_config(cfg)
     assert not ok
-    assert off == 182
+    assert off == FIELD_OFFSETS['can_base_id']

@@ -7,16 +7,16 @@ Can run as:
   - Serial subprocess: run_on_serial_port()
 
 Simulation modes:
-  - 'healthy'         — nominal voltages/temps, no faults
-  - 'safe_invalid'    — all measurements invalid (MEAS_ERROR), no faults
-  - 'cell_uv'         — cell[0] at 2400 mV, FAULT_CELL_UV active
-  - 'cell_ov'         — cell[0] at 4300 mV, FAULT_CELL_OV active
-  - 'temp_invalid'    — all temps INVALID, FAULT_TEMP_READ_INVALID active
-  - 'vpack_invalid'   — FAULT_VPACK_INVALID active
-  - 'isospi_fault'    — FAULT_ISOSPI_CELL active
-  - 'config_error'    — FAULT_CONFIG_INVALID active
-  - 'precharge_fault' — FAULT_PRECHARGE_TIMEOUT active
-  - 'bootloader'      — capabilities report FIRMWARE_TYPE_BOOTLOADER
+  - 'healthy'           — nominal voltages/temps, no faults
+  - 'safe_invalid'      — all measurements invalid (MEAS_ERROR), no faults
+  - 'cell_uv'           — cell[0] at 2400 mV, FAULT_CELL_UV active
+  - 'cell_ov'           — cell[0] at 4300 mV, FAULT_CELL_OV active
+  - 'temp_invalid'      — all temps INVALID, FAULT_TEMP_READ_INVALID active
+  - 'vpack_invalid'     — FAULT_VPACK_INVALID active
+  - 'isospi_fault'      — FAULT_ISOSPI_CELL active
+  - 'config_error'      — FAULT_CONFIG_INVALID active
+  - 'overcurrent_fault' — FAULT_OVERCURRENT active (latching)
+  - 'bootloader'        — capabilities report FIRMWARE_TYPE_BOOTLOADER
 """
 import socket
 import struct
@@ -41,20 +41,15 @@ from ..protocol.packet_defs import (
     FIRMWARE_TYPE_BMS_APP, FIRMWARE_TYPE_BOOTLOADER,
     TOTAL_CELL_COUNT, TOTAL_TEMP_COUNT,
 )
+from ..protocol.bms_defs import (
+    FAULT_BIT_CELL_OV, FAULT_BIT_CELL_UV, FAULT_BIT_TEMP_READ_INVALID,
+    FAULT_BIT_VPACK_INVALID, FAULT_BIT_ISOSPI_CELL, FAULT_BIT_ISOSPI_TEMP,
+    FAULT_BIT_I2C_ISL28022, FAULT_BIT_CONFIG_INVALID, FAULT_BIT_OVERCURRENT,
+    BMS_STATE_STANDBY,
+)
 from ..config.schema import BmsConfig
 
 TEMP_INVALID_CX10 = -0x8000  # sentinel
-
-# Fault bit positions (must match protocol/fault_bits.yaml)
-FAULT_BIT_CELL_OV           = 0
-FAULT_BIT_CELL_UV           = 1
-FAULT_BIT_TEMP_READ_INVALID = 9
-FAULT_BIT_VPACK_INVALID     = 12
-FAULT_BIT_PRECHARGE_TIMEOUT = 13
-FAULT_BIT_ISOSPI_CELL       = 15
-FAULT_BIT_ISOSPI_TEMP       = 16
-FAULT_BIT_I2C_ISL28022      = 17
-FAULT_BIT_CONFIG_INVALID    = 19
 
 BL_ENTRY_FLAG = 0xB007B007
 
@@ -62,7 +57,7 @@ BL_ENTRY_FLAG = 0xB007B007
 
 _KNOWN_MODES = frozenset([
     'healthy', 'safe_invalid', 'cell_uv', 'cell_ov', 'temp_invalid',
-    'vpack_invalid', 'isospi_fault', 'config_error', 'precharge_fault',
+    'vpack_invalid', 'isospi_fault', 'config_error', 'overcurrent_fault',
     'bootloader', 'openwire_detected', 'openwire_pec_fail',
 ])
 
@@ -94,8 +89,8 @@ def _apply_simulation_mode(target: 'FakeTarget', mode: str) -> None:
         target.inject_fault(FAULT_BIT_ISOSPI_CELL)
     elif mode == 'config_error':
         target.inject_fault(FAULT_BIT_CONFIG_INVALID)
-    elif mode == 'precharge_fault':
-        target.inject_fault(FAULT_BIT_PRECHARGE_TIMEOUT)
+    elif mode == 'overcurrent_fault':
+        target.inject_fault(FAULT_BIT_OVERCURRENT)
     elif mode == 'bootloader':
         target.set_firmware_type(FIRMWARE_TYPE_BOOTLOADER)
     elif mode == 'openwire_detected':
@@ -211,7 +206,7 @@ class FakeTarget:
             PKT_GET_CONFIG:             lambda: self._h_get_config(seq),
             PKT_VALIDATE_CONFIG:        lambda: self._h_validate_config(seq, payload),
             PKT_SET_CONFIG_RAM:         lambda: self._h_set_config_ram(seq, payload),
-            PKT_STORE_CONFIG:           lambda: self._error(pkt_id, seq, 0x0A),
+            PKT_STORE_CONFIG:           lambda: self._h_store_config(seq, payload),
             PKT_GET_DIAGNOSTICS_SUMMARY: lambda: self._h_diagnostics_summary(seq),
             PKT_RUN_OPENWIRE:           lambda: self._h_run_openwire(seq),
             PKT_GET_GPIO_SNAPSHOT:      lambda: self._h_get_gpio_snapshot(seq),
@@ -270,7 +265,7 @@ class FakeTarget:
         struct.pack_into('<i', resp, 0,  vbat_mv)
         struct.pack_into('<i', resp, 4,  vpack_mv)
         struct.pack_into('<i', resp, 8,  i_batt_ma)
-        struct.pack_into('<H', resp, 12, 1)          # state: STANDBY
+        struct.pack_into('<H', resp, 12, BMS_STATE_STANDBY)
         struct.pack_into('<Q', resp, 14, self._active_faults)
         struct.pack_into('<Q', resp, 22, self._latched_faults)
         resp[30] = 0                                 # outputs_state
@@ -328,6 +323,20 @@ class FakeTarget:
         if ok:
             self._config = cfg
         return self._respond(PKT_SET_CONFIG_RAM, struct.pack('<BH', 0 if ok else 1, err_off), seq)
+
+    def _h_store_config(self, seq: int, payload: bytes) -> bytes:
+        """Mirrors firmware handle_store_config: validate, persist, bump
+        generation. Response is a single status byte (0 = stored)."""
+        from ..config.validator import validate_config
+        if len(payload) != CONFIG_SCHEMA_SIZE:
+            return self._error(PKT_STORE_CONFIG, seq, 0x02)
+        cfg = BmsConfig.unpack(payload)
+        ok, _, _ = validate_config(cfg)
+        if not ok:
+            return self._respond(PKT_STORE_CONFIG, bytes([1]), seq, is_error=True)
+        cfg.config_generation = self._config.config_generation + 1
+        self._config = cfg
+        return self._respond(PKT_STORE_CONFIG, bytes([0]), seq)
 
     def _h_diagnostics_summary(self, seq: int) -> bytes:
         # Layout: reset_cause(1) + pec_cell(4) + pec_temp(4) + i2c(4) +

@@ -1,4 +1,4 @@
-"""config.py — Grouped editable RAM-config editor with validation UX.
+"""config.py — Grouped editable config editor with validation UX.
 
 Tab layout:
   Editor  — grouped QSpinBox/QLineEdit fields for all user-configurable params
@@ -6,8 +6,10 @@ Tab layout:
 
 Dirty tracking:
   "No config loaded" → "Modified — not applied" → "Validated" → "Applied to RAM"
+  → "Stored to flash"
 
-Store to Flash is NOT implemented; a passive note says so.
+Apply to RAM is volatile (reverts on reboot); Store to Flash persists and is
+guarded by a confirmation dialog.
 """
 import re
 from pathlib import Path
@@ -17,6 +19,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QTextEdit, QFileDialog, QGroupBox, QFormLayout,
     QSpinBox, QLineEdit, QTabWidget, QScrollArea, QFrame,
+    QMessageBox,
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
@@ -80,14 +83,18 @@ class ConfigPage(QWidget):
         self._export_btn = QPushButton("Export Default Config")
         self._val_btn    = QPushButton("Validate Offline")
         self._apply_btn  = QPushButton("Apply to RAM")
+        self._store_btn  = QPushButton("Store to Flash…")
 
         self._read_btn.setToolTip("Read live config from target (BMS_APP required)")
         self._val_btn.setToolTip("Validate current editor values without connecting")
         self._apply_btn.setToolTip(
-            "Validate and send config to target RAM (BMS_APP required)")
+            "Validate and send config to target RAM (volatile — reverts on reboot)")
+        self._store_btn.setToolTip(
+            "Validate and write config to target FLASH (persists across reboots)")
 
         for btn in (self._read_btn, self._load_btn, self._save_btn,
-                    self._export_btn, self._val_btn, self._apply_btn):
+                    self._export_btn, self._val_btn, self._apply_btn,
+                    self._store_btn):
             act_lay.addWidget(btn)
         act_lay.addStretch()
         outer.addWidget(act_grp)
@@ -98,6 +105,7 @@ class ConfigPage(QWidget):
         self._export_btn.clicked.connect( self._on_export_default)
         self._val_btn.clicked.connect(    self._on_validate_offline)
         self._apply_btn.clicked.connect(  self._on_apply_ram)
+        self._store_btn.clicked.connect(  self._on_store_flash)
 
         # ── Status bar ────────────────────────────────────────────────────────
         self._status_lbl = QLabel("No config loaded.")
@@ -114,8 +122,9 @@ class ConfigPage(QWidget):
 
         # ── Flash note ────────────────────────────────────────────────────────
         note = QLabel(
-            "ℹ  Persistent config storage (Store to Flash) is not yet implemented. "
-            "Apply to RAM only — config reverts to stored flash values on reboot.")
+            "ℹ  Apply to RAM is volatile (reverts on reboot). "
+            "Store to Flash persists across reboots and triggers a config reload "
+            "on the target.")
         note.setWordWrap(True)
         note.setStyleSheet(
             "font-style:italic; font-size:11px; "
@@ -204,21 +213,24 @@ class ConfigPage(QWidget):
         tmp_form.addRow("Cold Discharge Limit (deci-°C):", self._f['temp_cold_discharge_limit_cx10'])
         layout.addWidget(tmp_grp)
 
-        # ── Current / Precharge ───────────────────────────────────────────────
-        cur_grp  = QGroupBox("Current & Precharge")
+        # ── Current & Capacity ────────────────────────────────────────────────
+        cur_grp  = QGroupBox("Current & Capacity")
         cur_form = QFormLayout(cur_grp)
 
-        self._f['overcurrent_hard_ma']     = _spin(cur_grp, 1, 2000000, 1000)
-        self._f['overcurrent_warn_ma']     = _spin(cur_grp, 0, 2000000, 1000)
-        self._f['precharge_pct']           = _spin(cur_grp, 50, 99)
-        self._f['precharge_timeout_ms']    = _spin(cur_grp, 1, 300000, 1000)
-        self._f['precharge_delta_max_pct'] = _spin(cur_grp, 1, 20)
+        self._f['overcurrent_hard_ma'] = _spin(cur_grp, 1, 2000000, 1000)
+        self._f['overcurrent_warn_ma'] = _spin(cur_grp, 0, 2000000, 1000)
+        cap_spin = QSpinBox(cur_grp)
+        cap_spin.setRange(1000, 1000000)
+        cap_spin.setSingleStep(1000)
+        cap_spin.setMinimumWidth(120)
+        cap_spin.setToolTip(
+            "Pack capacity in mAh — used for SOC coulomb counting.\n"
+            "Set to your pack's rated capacity (e.g. 100000 = 100 Ah).")
+        self._f['capacity_mah'] = cap_spin
 
-        cur_form.addRow("Overcurrent Hard (mA):",  self._f['overcurrent_hard_ma'])
-        cur_form.addRow("Overcurrent Warn (mA):",  self._f['overcurrent_warn_ma'])
-        cur_form.addRow("Precharge Target (%):",   self._f['precharge_pct'])
-        cur_form.addRow("Precharge Timeout (ms):", self._f['precharge_timeout_ms'])
-        cur_form.addRow("Precharge Delta Max (%):", self._f['precharge_delta_max_pct'])
+        cur_form.addRow("Overcurrent Hard (mA):", self._f['overcurrent_hard_ma'])
+        cur_form.addRow("Overcurrent Warn (mA):", self._f['overcurrent_warn_ma'])
+        cur_form.addRow("Pack Capacity (mAh):",   self._f['capacity_mah'])
         layout.addWidget(cur_grp)
 
         # ── Timing ────────────────────────────────────────────────────────────
@@ -372,8 +384,7 @@ class ConfigPage(QWidget):
             'temp_discharge_warn_cx10', 'temp_discharge_hard_cx10',
             'temp_hard_abs_cx10', 'temp_cold_charge_limit_cx10',
             'temp_cold_discharge_limit_cx10',
-            'overcurrent_hard_ma', 'overcurrent_warn_ma',
-            'precharge_pct', 'precharge_timeout_ms', 'precharge_delta_max_pct',
+            'overcurrent_hard_ma', 'overcurrent_warn_ma', 'capacity_mah',
             'temp_settle_time_ms', 'stale_data_timeout_ms',
             'vpack_gain_x1000', 'vpack_offset_mv',
             'vbat_gain_x1000', 'vbat_offset_mv',
@@ -413,8 +424,7 @@ class ConfigPage(QWidget):
             'temp_discharge_warn_cx10', 'temp_discharge_hard_cx10',
             'temp_hard_abs_cx10', 'temp_cold_charge_limit_cx10',
             'temp_cold_discharge_limit_cx10',
-            'overcurrent_hard_ma', 'overcurrent_warn_ma',
-            'precharge_pct', 'precharge_timeout_ms', 'precharge_delta_max_pct',
+            'overcurrent_hard_ma', 'overcurrent_warn_ma', 'capacity_mah',
             'temp_settle_time_ms', 'stale_data_timeout_ms',
             'vpack_gain_x1000', 'vpack_offset_mv',
             'vbat_gain_x1000', 'vbat_offset_mv',
@@ -510,6 +520,7 @@ class ConfigPage(QWidget):
         is_app = (state.device.mode == DeviceMode.BMS_APP)
         self._read_btn.setEnabled(is_app)
         self._apply_btn.setEnabled(is_app and self._cfg is not None)
+        self._store_btn.setEnabled(is_app and self._cfg is not None)
 
     # ── Action handlers ───────────────────────────────────────────────────────
 
@@ -637,5 +648,52 @@ class ConfigPage(QWidget):
             else:
                 self._set_status(
                     f"Apply RAM: FAIL at 0x{err_off_r:04X} — {msg_r}", kind='error')
+        except (ProtocolError, TargetRefusedError) as e:
+            self._set_status(str(e), kind='error')
+
+    def _on_store_flash(self) -> None:
+        if self._cfg is None:
+            self._set_status("No config loaded.", kind='warn')
+            return
+        mask_err = self._validate_masks()
+        self._highlight_mask_errors()
+        if mask_err:
+            self._set_status(f"Store refused — {mask_err}", kind='error')
+            return
+        try:
+            cfg = self._widgets_to_cfg()
+        except Exception as e:
+            self._set_status(f"Cannot build config: {e}", kind='error')
+            return
+        ok_v, err_off, msg_v = validate_config(cfg)
+        if not ok_v:
+            self._set_status(
+                f"Store refused — local validation FAIL at 0x{err_off:04X}: {msg_v}",
+                kind='error')
+            return
+
+        answer = QMessageBox.question(
+            self, "Store Config to Flash",
+            "Write this config to target FLASH?\n\n"
+            "It persists across reboots and becomes the active config "
+            "immediately. Verify thresholds before storing.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if answer != QMessageBox.StandardButton.Yes:
+            self._set_status("Store cancelled.", kind='neutral')
+            return
+
+        model: TargetModel = getattr(self._main, '_model', None)
+        if model is None:
+            self._set_status("Not connected.", kind='warn')
+            return
+        try:
+            if model.store_config(cfg):
+                self._cfg = cfg
+                self._dirty = False
+                self._set_status("Stored to flash.", kind='ok')
+                self._update_raw(cfg)
+            else:
+                self._set_status("Store to flash: target refused.", kind='error')
         except (ProtocolError, TargetRefusedError) as e:
             self._set_status(str(e), kind='error')

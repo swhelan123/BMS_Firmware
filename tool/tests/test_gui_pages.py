@@ -214,7 +214,7 @@ class TestDashboardPage:
         state = AppState()
         state.update_values(ValuesState(
             vbat_mv=48000, vpack_mv=47500, i_batt_ma=-2000,
-            bms_state=3, uptime_ms=10000, outputs_state=0x01,
+            bms_state=2, uptime_ms=10000, outputs_state=0x01,
             active_faults=0, latched_faults=0,
             measurement_flags=0, valid=True,
         ))

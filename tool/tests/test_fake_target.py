@@ -85,7 +85,7 @@ class TestFaults:
 
     def test_injected_fault_appears_in_active(self):
         t = FakeTarget()
-        t.inject_fault(0)  # FAULT_BIT_CELL_UV_HARD
+        t.inject_fault(0)  # FAULT_BIT_CELL_OV
         r = send_recv(t, PKT_GET_FAULTS)
         active = struct.unpack_from('<Q', r['payload'], 0)[0]
         assert active & 1
@@ -131,10 +131,19 @@ class TestConfig:
         cfg2 = BmsConfig.unpack(r2['payload'])
         assert cfg2.can_base_id == 0x0123
 
-    def test_store_config_returns_not_supported(self):
+    def test_store_config_persists_and_bumps_generation(self):
         t = FakeTarget()
-        cfg = BmsConfig().pack()
-        r = send_recv(t, PKT_STORE_CONFIG, cfg)
+        cfg = BmsConfig()
+        gen_before = t._config.config_generation
+        r = send_recv(t, PKT_STORE_CONFIG, cfg.pack())
+        assert not r['is_error']
+        assert r['payload'][0] == 0
+        assert t._config.config_generation == gen_before + 1
+
+    def test_store_config_rejects_invalid(self):
+        t = FakeTarget()
+        cfg = BmsConfig(cell_uv_hard_mv=5000)  # breaks INV-01 ordering
+        r = send_recv(t, PKT_STORE_CONFIG, cfg.pack())
         assert r['is_error']
 
     def test_unknown_packet_returns_error(self):

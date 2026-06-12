@@ -18,10 +18,10 @@ TEMP_INVALID_CX10 = -0x8000
 TOTAL_CELL_COUNT  = 75
 TOTAL_TEMP_COUNT  = 75
 
-FAULT_BIT_ISOSPI_CELL   = 15
-FAULT_BIT_ISOSPI_TEMP   = 16
-FAULT_BIT_I2C_ISL28022  = 17
-FAULT_BIT_VPACK_INVALID = 12
+from tool.src.protocol.bms_defs import (
+    FAULT_BIT_ISOSPI_CELL, FAULT_BIT_ISOSPI_TEMP,
+    FAULT_BIT_I2C_ISL28022, FAULT_BIT_VPACK_INVALID,
+)
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────

@@ -25,7 +25,11 @@ import random
 import time
 from typing import Optional
 
-from .fake_target import FakeTarget, FAULT_BIT_CELL_OV, FAULT_BIT_CELL_UV, FAULT_BIT_ISOSPI_CELL, FAULT_BIT_VPACK_INVALID, TEMP_INVALID_CX10
+from .fake_target import FakeTarget, TEMP_INVALID_CX10
+from ..protocol.bms_defs import (
+    FAULT_BIT_CELL_OV, FAULT_BIT_CELL_UV, FAULT_BIT_ISOSPI_CELL,
+    FAULT_BIT_VPACK_INVALID,
+)
 from ..protocol.framing import FrameDecoder
 from ..protocol.packet_defs import TOTAL_CELL_COUNT, TOTAL_TEMP_COUNT, FIRMWARE_TYPE_BOOTLOADER
 

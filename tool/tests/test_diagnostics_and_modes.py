@@ -146,11 +146,10 @@ class TestBootloaderUpdateBlockedInAppMode:
 
 # ── Simulation modes ──────────────────────────────────────────────────────────
 
-FAULT_BIT_CELL_OV           = 0
-FAULT_BIT_CELL_UV           = 1
-FAULT_BIT_TEMP_READ_INVALID = 9
-FAULT_BIT_ISOSPI_CELL       = 15
-FAULT_BIT_CONFIG_INVALID    = 19
+from tool.src.protocol.bms_defs import (
+    FAULT_BIT_CELL_OV, FAULT_BIT_CELL_UV, FAULT_BIT_TEMP_READ_INVALID,
+    FAULT_BIT_ISOSPI_CELL, FAULT_BIT_CONFIG_INVALID,
+)
 
 
 class TestSimulationModes:
