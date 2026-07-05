@@ -1,0 +1,29 @@
+Reference,Qty,Value,DNP,Footprint,Datasheet,Part Number
+"C1,C4,C10,C11,C12,C13,C14,C15,C16,C17,C18,C19,C20,C21,C22,C23,C24,C25,C28",19,100n,,Capacitor_SMD:C_0603_1608Metric,https://pim.murata.com/asset/pim4/ceramicCapacitorSMD/GRM188R72A104KA35-01A-EN_PDF_CERAMICCAPACITORSMD,GRM188R72A104KA35D
+"C2,C3,C5,C6,C7,C26,C27,C29,C30,C31",10,1uF,,Capacitor_SMD:C_0603_1608Metric,https://mm.digikey.com/Volume0/opasdata/d220001/medias/docus/3584/CL10B105KP8NNNC_Spec.pdf,CL10B105KP8NNNC
+"C8,C9,C32,C33",4,100p,,Capacitor_SMD:C_0603_1608Metric,https://pim.murata.com/asset/pim4/ceramicCapacitorSMD/GRM1885C1H101JA01-01A-EN_PDF_CERAMICCAPACITORSMD,GRM1885C1H101JA01D
+"D1,D2,D20,D21",4,1N4148W,,Diode_SMD:D_SOD-123,https://www.mouser.ie/datasheet/3/175/1/BAV16W_1N4148W.pdf,1N4148W-7-F
+"D3,D22",2,MMSZ5268BT1G,,Diode_SMD:D_SOD-123,https://www.onsemi.com/pub/Collateral/MMSZ5221BT1-D.PDF,MMSZ5268BT1G
+"D4,D23",2,LED,,LED_SMD:LED_0603_1608Metric_Pad1.05x0.95mm_HandSolder,https://www.vishay.com/doc?84393,VLMTG1400-GS08
+"D5,D6,D7,D8,D9,D10,D11,D12,D13,D14,D15,D16,D17,D18,D19",15,PDZ7.5B,,Diode_SMD:D_SOD-323,https://assets.nexperia.com/documents/data-sheet/PDZ-B_SER.pdf,PDZ7.5B
+"F1,F3,F5,F7,F9,F11,F13,F15,F18,F20,F22,F24,F26,F28,F30,F32,F34,F35,F37,F39,F41,F44,F46,F47,F49,F51,F55,F57,F59,F61,F63,F64,F66,F67",34,50mA,,Fuse:Fuse_1206_3216Metric,https://www.mouser.ie/datasheet/3/386/1/typ_USFF_1206.pdf,3413.0002.11
+"FB1,FB2",2,33,,Resistor_SMD:R_0603_1608Metric,https://www.mouser.ie/datasheet/3/76/1/ENFA0003.pdf,BLM18PG330SN1D
+J1,1,PB MB 2,,Connector_Molex:Molex_PicoBlade_53048-0210_1x02_P1.25mm_Horizontal,https://www.molex.com/en-us/products/part-detail-pdf/530481510?display=pdf,53048-0210
+J2,1,PA MA 2,,Connector_Molex:Molex_PicoBlade_53048-0210_1x02_P1.25mm_Horizontal,https://www.molex.com/en-us/products/part-detail-pdf/530481510?display=pdf,53048-0210
+"J3,J6",2,Sensors,,Connector_Molex:Molex_PicoBlade_53048-1510_1x15_P1.25mm_Horizontal,https://www.molex.com/en-us/products/part-detail-pdf/530481510?display=pdf,53048-1510
+"J4,J5",2,Conn_01x08,,Connector_Molex:Molex_PicoBlade_53048-0810_1x08_P1.25mm_Horizontal,https://www.molex.com/en-us/products/part-detail-pdf/530481510?display=pdf,53048-0810
+J10,1,PB MB 1,,Connector_Molex:Molex_PicoBlade_53048-0210_1x02_P1.25mm_Horizontal,https://www.molex.com/en-us/products/part-detail-pdf/530481510?display=pdf,53048-0210
+J11,1,PA MA 1,,Connector_Molex:Molex_PicoBlade_53048-0210_1x02_P1.25mm_Horizontal,https://www.molex.com/en-us/products/part-detail-pdf/530481510?display=pdf,53048-0210
+"Q1,Q17",2,DZTT5551,,Package_TO_SOT_SMD:SOT-223,https://www.mouser.ie/datasheet/3/175/1/ds31219.pdf,DZT5551-13
+"Q2,Q3,Q4,Q5,Q6,Q7,Q8,Q9,Q10,Q11,Q12,Q13,Q14,Q15,Q16",15,TSM2323,,Package_TO_SOT_SMD:SOT-23,https://www.taiwansemi.com/assets/datasheet/pdf.php?pn=TSM2323CX,TSM2323CX RFG
+"Q18,Q19,Q20,Q21,Q22,Q23,Q24,Q25,Q26,Q27,Q28,Q29,Q30,Q31,Q32",15,2N7002,,Package_TO_SOT_SMD:SOT-23,https://www.onsemi.com/pub/Collateral/NDS7002A-D.PDF,2N7002
+"R1,R3,R8,R9,R15,R19,R23,R27,R31,R35,R39,R43,R47,R51,R55,R59,R63,R67,R71,R74,R76,R81,R82,R84,R85,R86,R87,R88,R89,R90,R91,R92,R93,R94,R95,R96,R98,R99",38,100,,Resistor_SMD:R_0805_2012Metric,https://www.vishay.com/docs/20043/crcwhpe3.pdf,CRCW0805100RFKEAHP
+"R2,R75",2,806,,Resistor_SMD:R_0603_1608Metric,https://www.vishay.com/docs/20035/dcrcwe3.pdf,CRCW0603806RFKEA
+"R4,R77",2,1M,,Resistor_SMD:R_0603_1608Metric,https://www.vishay.com/docs/20035/dcrcwe3.pdf,CRCW06031M00FKEA
+"R5,R10,R78,R83",4,1.2k,,Resistor_SMD:R_0603_1608Metric,https://www.vishay.com/docs/20035/dcrcwe3.pdf,CRCW06031K20FKEA
+"R6,R7,R79,R80",4,0,,Resistor_SMD:R_0603_1608Metric,https://www.vishay.com/docs/20035/dcrcwe3.pdf,CRCW06030000Z0EA
+"R11,R12,R16,R20,R24,R28,R32,R36,R40,R44,R48,R52,R56,R60,R64",15,680,,Resistor_SMD:R_0603_1608Metric,https://www.vishay.com/doc?20065,RCS0603680RFKEA
+"R13,R17,R21,R25,R29,R33,R37,R41,R45,R49,R53,R57,R61,R65,R69",15,22,,Resistor_SMD:R_2512_6332Metric,https://www.mouser.ie/datasheet/3/508/1/PYu-AC_51_RoHS_L_11.pdf,AC2512JK-7W22RL
+"R14,R18,R22,R26,R30,R34,R38,R42,R46,R50,R54,R58,R62,R66,R68,R70,R72,R73,R97,R100,R101,R102,R103,R104,R105,R106,R107,R108,R109,R110",30,3.3k,,Resistor_SMD:R_0508_1220Metric,https://www.koaspeer.com/pdfs/WK73R.pdf,WK73R2ATTD3301F
+"TR1,TR2",2,HM2102NL,,ENNOID:HM2102NL,https://www.mouser.ie/datasheet/3/508/1/HM2102NL.pdf,HM2102NL
+"U1,U2",2,LTC6812-1,,ENNOID:TQFP-64-1EP_10x10mm_P0.5mm_EP8x8mm,https://www.analog.com/media/en/technical-documentation/data-sheets/ltc6812-1.pdf,LTC6812-1

@@ -1,0 +1,163 @@
+(footprint "HM2108NL"
+	(version 20241229)
+	(generator "pcbnew")
+	(generator_version "9.0")
+	(layer "F.Cu")
+	(property "Reference" "REF**"
+		(at 0.127 -5.8674 0)
+		(layer "F.SilkS")
+		(uuid "a8113058-27a7-4437-9676-d9cd4f34873a")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Value" "HM2108NL"
+		(at 0 -10.4394 0)
+		(layer "F.Fab")
+		(uuid "7b120ee1-4d30-4b0c-b0e6-beb275af93cc")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Datasheet" ""
+		(at 0 0 0)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "3002890d-2911-464b-bf4d-06889ac0840e")
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Description" ""
+		(at 0 0 0)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "ade25283-1c34-40d0-9a66-1e3d704986f5")
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(attr smd)
+	(fp_line
+		(start -3.25 -9)
+		(end 3.25 -9)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "d30c6e02-3aeb-4fe0-a410-09bcff8386a5")
+	)
+	(fp_line
+		(start -3.25 9)
+		(end -3.25 -9)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "71a7c3ae-039b-4885-9355-f88ae6a93cdd")
+	)
+	(fp_line
+		(start 3.25 -9)
+		(end 3.25 9)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "49afbe8f-5bd6-4f21-9e37-1a88160c5ab3")
+	)
+	(fp_line
+		(start 3.25 9)
+		(end -3.25 9)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "d8ea3640-72b6-49bc-b96c-af3fe45a3da3")
+	)
+	(fp_circle
+		(center -2.5908 5.6134)
+		(end -2.2352 5.5118)
+		(stroke
+			(width 0.15)
+			(type solid)
+		)
+		(fill no)
+		(layer "F.SilkS")
+		(uuid "1856ce65-8ae6-4e11-8e53-081649da9f8b")
+	)
+	(fp_text user "${REFERENCE}"
+		(at 0.127 -5.8674 0)
+		(layer "F.Fab")
+		(uuid "ac93dd9a-bdec-4efe-b548-9da88d877364")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(pad "1" smd rect
+		(at -2.54 7.82)
+		(size 1.02 1.95)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(uuid "0af438f4-625f-44f5-baee-11d230b9edcf")
+	)
+	(pad "2" smd rect
+		(at 0 7.82)
+		(size 1.02 1.95)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(uuid "2b15dad3-4a90-4f36-a0d4-b1211979bada")
+	)
+	(pad "3" smd rect
+		(at 2.54 7.82)
+		(size 1.02 1.95)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(uuid "20cd6e9b-6636-4155-9c29-de810175f329")
+	)
+	(pad "4" smd rect
+		(at -2.54 -7.82)
+		(size 1.02 1.95)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(uuid "78068ceb-3b57-4a4e-b725-3bd21ccaf860")
+	)
+	(pad "5" smd rect
+		(at 0 -7.82)
+		(size 1.02 1.95)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(uuid "970bb37e-ae81-4b18-be04-8050a519c379")
+	)
+	(pad "6" smd rect
+		(at 2.54 -7.82)
+		(size 1.02 1.95)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(uuid "a09f0f43-5241-4278-8062-7bd2b1befd05")
+	)
+	(embedded_fonts no)
+	(model "/Users/keelan/Downloads/ul_HM2108NL/SMT_2108NL_PUL.step"
+		(offset
+			(xyz 0 0 0)
+		)
+		(scale
+			(xyz 1 1 1)
+		)
+		(rotate
+			(xyz -0 -0 -90)
+		)
+	)
+)

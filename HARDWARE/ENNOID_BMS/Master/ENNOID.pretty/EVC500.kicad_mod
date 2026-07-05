@@ -1,0 +1,89 @@
+(footprint "EVC500"
+	(version 20241229)
+	(generator "pcbnew")
+	(generator_version "9.0")
+	(layer "F.Cu")
+	(property "Reference" "REF**"
+		(at 0 0.5 0)
+		(layer "F.SilkS")
+		(uuid "513778ea-552d-4685-a30b-250a345fc1f0")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Value" "EVC500"
+		(at 0 -0.5 0)
+		(layer "F.Fab")
+		(uuid "6fa4552f-3ba4-42f5-8575-438bf6526fb1")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Datasheet" ""
+		(at 0 0 0)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "2c3aff15-31b7-4bde-a697-6ea5343ea115")
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Description" ""
+		(at 0 0 0)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "4947accf-cf54-4096-9f7a-68032dc6e77a")
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(attr through_hole)
+	(pad "" thru_hole circle
+		(at 19 0)
+		(size 9.5 9.5)
+		(drill 9)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(uuid "f6dfcb7f-08e5-4c29-9f5f-b9ee95da00de")
+	)
+	(pad "1" thru_hole circle
+		(at 0 13.335)
+		(size 16 16)
+		(drill 8.5)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(uuid "d3fe53f1-19c9-474c-a980-b51061bf3596")
+	)
+	(pad "2" thru_hole circle
+		(at 0 -13.335)
+		(size 16 16)
+		(drill 8.5)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(uuid "a841db1c-3e88-4069-8cbd-c713f2c3bab9")
+	)
+	(embedded_fonts no)
+	(model "${KIPRJMOD}/ENNOID.pretty/EVC500.stp"
+		(offset
+			(xyz 0 0 -57.5)
+		)
+		(scale
+			(xyz 1 1 1)
+		)
+		(rotate
+			(xyz 0 0 90)
+		)
+	)
+)

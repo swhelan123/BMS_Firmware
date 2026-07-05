@@ -57,3 +57,13 @@ CTestTestfile.cmake
 *.pem
 *.key
 build_bootloader/
+
+# ── macOS ─────────────────────────────────────────────────────────────────────
+.DS_Store
+
+# ── KiCad / hardware transient artifacts ──────────────────────────────────────
+*-backups/
+fp-info-cache
+*.lck
+~*.lck
+~$*
