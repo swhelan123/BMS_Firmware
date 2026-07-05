@@ -53,6 +53,13 @@ void board_clock_init(void) {
     SysTick->LOAD = 72000u - 1u;
     SysTick->VAL  = 0u;
     SysTick->CTRL = SysTick_CTRL_CLKSOURCE | SysTick_CTRL_TICKINT | SysTick_CTRL_ENABLE;
+
+    /* 9. Ensure IRQs are enabled regardless of how we were entered.
+     * The bootloader jumps here with PRIMASK set unless it re-enables IRQs;
+     * without this, SysTick never fires and every delay loop hangs. */
+#ifndef BMS_HOST_BUILD
+    __asm volatile ("cpsie i" ::: "memory");
+#endif
 }
 
 uint32_t board_clock_get_ms(void) {

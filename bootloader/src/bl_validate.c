@@ -38,8 +38,8 @@ BlValidateResult bl_validate_package_header(const FirmwarePackageHeader *hdr,
     /* Step 6: application start address */
     if (hdr->app_start_addr != APP_START_ADDR) { return BL_ERR_APP_ADDR; }
 
-    /* Step 7: application size */
-    if (hdr->app_size == 0u || hdr->app_size > APP_REGION_SIZE) {
+    /* Step 7: application size (must leave the metadata page untouched) */
+    if (hdr->app_size == 0u || hdr->app_size > APP_MAX_SIZE) {
         return BL_ERR_APP_SIZE;
     }
 

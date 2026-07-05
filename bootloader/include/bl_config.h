@@ -16,6 +16,10 @@
 #define BL_SIZE_BYTES        (32u * 1024u)
 #define APP_START_ADDR       (0x08008000u)
 #define APP_REGION_SIZE      (188u * 1024u)
+/* Last page of the app region holds the persisted package header (metadata).
+ * Usable application image size is therefore one page smaller. */
+#define APP_MAX_SIZE         (APP_REGION_SIZE - FLASH_PAGE_SIZE)  /* 186 KB */
+#define APP_META_ADDR        (APP_START_ADDR + APP_MAX_SIZE)      /* 0x08036800 */
 #define CONFIG_A_START_ADDR  (0x08037000u)
 #define CONFIG_B_START_ADDR  (0x08039000u)
 #define CONFIG_SLOT_SIZE     (8u * 1024u)
@@ -40,6 +44,13 @@
 /* ── Boot flag ───────────────────────────────────────────────────────────── */
 #define BL_ENTRY_FLAG        (0xB007B007u)
 
+/* ── Metadata page markers ───────────────────────────────────────────────── */
+/* Word 0 of APP_META_ADDR encodes the update state:
+ *   PKG_MAGIC (0xBF00BF00)  — full package header persisted; validate + CRC-check app
+ *   BL_META_UPDATING        — update interrupted (BEGIN ran, FINALIZE did not); stay in BL
+ *   anything else           — no metadata (e.g. SWD-flashed app); jump on valid vectors */
+#define BL_META_UPDATING     (0xA55AFEEDu)
+
 /* ── Protocol version supported by this bootloader ───────────────────────── */
 #define BL_PROTOCOL_VERSION  (1u)
 
@@ -53,6 +64,10 @@ _Static_assert(BL_START_ADDR + BL_SIZE_BYTES <= APP_START_ADDR,
                "bootloader must not overlap application region");
 _Static_assert(APP_START_ADDR + APP_REGION_SIZE <= CONFIG_A_START_ADDR,
                "application must not overlap config region A");
+_Static_assert(APP_META_ADDR % FLASH_PAGE_SIZE == 0u,
+               "metadata page must be page-aligned");
+_Static_assert(APP_META_ADDR + FLASH_PAGE_SIZE == APP_START_ADDR + APP_REGION_SIZE,
+               "metadata page must be the last page of the app region");
 _Static_assert(CONFIG_A_START_ADDR + CONFIG_SLOT_SIZE <= CONFIG_B_START_ADDR,
                "config slot A must not overlap slot B");
 #endif

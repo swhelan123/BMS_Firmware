@@ -46,7 +46,11 @@ void bms_state_tick(const CellSnapshot    *cells,
     /* Bootloader entry takes unconditional priority. */
     if (s_bl_entry_requested) {
         bms_outputs_deassert_all();
-        RTC->BKP0R = BL_ENTRY_FLAG;
+        /* Backup registers are write-protected: unlock the backup domain
+         * (PWR clock + DBP) or the flag write is silently ignored. */
+        RCC->APB1ENR |= RCC_APB1ENR_PWREN;
+        PWR->CR     |= PWR_CR_DBP;
+        RTC->BKP0R   = BL_ENTRY_FLAG;
         SCB->AIRCR = SCB_AIRCR_VECTKEY | SCB_AIRCR_SYSRESETREQ;
         while (1) { /* wait for reset */ }
     }

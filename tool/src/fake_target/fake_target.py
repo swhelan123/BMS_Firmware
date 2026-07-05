@@ -246,7 +246,7 @@ class FakeTarget:
         resp[12] = TOTAL_TEMP_COUNT & 0xFF
         struct.pack_into('<I', resp, 13, 0x07)   # feature flags: cell+temp+balance
         resp[17] = 9   # max_payload_log2
-        struct.pack_into('<I', resp, 18, 188 * 1024)  # app_region_size
+        struct.pack_into('<I', resp, 18, 186 * 1024)  # usable app size (region minus BL metadata page)
         struct.pack_into('<I', resp, 22, 8 * 1024)    # config_slot_size
         return self._respond(PKT_GET_CAPABILITIES, bytes(resp), seq)
 
@@ -409,6 +409,7 @@ class FakeTarget:
         self._update_staged = bytearray()
         self._update_total_chunks = total_chunks
         self._update_next_chunk_idx = 0
+        self._update_expected_crc = hdr.app_crc32
         self._update_state = 'accepting_chunks'
         resp = struct.pack('<BBII', 0, 0, self._update_chunk_size, total_chunks)
         return self._respond(PKT_BOOT_UPDATE_BEGIN, resp, seq)
@@ -435,6 +436,13 @@ class FakeTarget:
             return self._error(PKT_BOOT_UPDATE_FINALIZE, seq, 0x0C)
         from ..protocol.crc import crc32_iso_hdlc
         computed = crc32_iso_hdlc(bytes(self._update_staged))
+        # Mirror the real bootloader: FINALIZE fails if the written image's
+        # CRC does not match the app_crc32 promised in the BEGIN header.
+        if computed != getattr(self, '_update_expected_crc', computed):
+            self._update_state = None
+            return self._respond(PKT_BOOT_UPDATE_FINALIZE,
+                                 struct.pack('<BI', 1, computed), seq,
+                                 is_error=True)
         self._update_state = 'complete'
         return self._respond(PKT_BOOT_UPDATE_FINALIZE, struct.pack('<BI', 0, computed), seq)
 

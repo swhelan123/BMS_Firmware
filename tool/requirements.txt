@@ -1,4 +1,7 @@
 pyserial>=3.5
-PyQt6>=6.4.0
+# Pinned: PyQt6 6.11.0 ships against Qt 6.11.1 and the pairing fails to load
+# the cocoa platform plugin on macOS ("Could not find the Qt platform plugin").
+# 6.9.1 + Qt 6.9.2 is verified working. Re-test before bumping.
+PyQt6==6.9.1
 PyYAML>=6.0
 pytest>=7.0

@@ -90,8 +90,20 @@ elif [[ -z "$PYTHON" ]]; then
     _warn "skipped (no Python 3.11+)"
 else
     VENV_DIR="$REPO_ROOT/.venv"
-    if [[ -d "$VENV_DIR" ]]; then
+    if [[ -L "$VENV_DIR" && -d "$VENV_DIR" ]]; then
+        _ok ".venv already exists (symlink → $(readlink "$VENV_DIR"))"
+    elif [[ -d "$VENV_DIR" ]]; then
         _ok ".venv already exists"
+        # A real (non-symlink) .venv inside a repo under iCloud "Desktop &
+        # Documents" sync gets its files churned by the sync daemon, which
+        # has repeatedly corrupted the PyQt6 native libs (ad-hoc-signed
+        # dylibs failing codesign/Gatekeeper after a sync pass). Warn so a
+        # broken GUI launch points here instead of a fresh multi-hour debug.
+        if [[ "$REPO_ROOT" == "$HOME/Documents/"* || "$REPO_ROOT" == "$HOME/Desktop/"* ]]; then
+            _warn ".venv is a real directory inside an iCloud-synced path (~/Documents or ~/Desktop)."
+            _warn "  If PyQt6/GUI launches start failing with Qt plugin errors, move the venv"
+            _warn "  outside sync, e.g.: python3 -m venv ~/.venvs/bms_firmware && rm -rf .venv && ln -s ~/.venvs/bms_firmware .venv"
+        fi
     else
         echo "  Creating $VENV_DIR …"
         "$PYTHON" -m venv "$VENV_DIR"

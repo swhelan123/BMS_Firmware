@@ -20,7 +20,7 @@ from typing import Tuple
 from ..protocol.crc import crc32_iso_hdlc
 from .package_parser import (
     PKG_MAGIC, PKG_HEADER_SIZE, BL_MAX_PKG_VERSION,
-    APP_START_ADDR, APP_REGION_SIZE, STM32F303VC_DEV_ID, _HDR_FMT,
+    APP_START_ADDR, APP_MAX_SIZE, STM32F303VC_DEV_ID, _HDR_FMT,
 )
 from ..protocol.packet_defs import HW_PROFILE_ID
 
@@ -64,9 +64,9 @@ def build_package(
     app_size = len(firmware_binary)
     if app_size == 0:
         raise PackageBuildError("Firmware binary is empty")
-    if app_size > APP_REGION_SIZE:
+    if app_size > APP_MAX_SIZE:
         raise PackageBuildError(
-            f"Firmware too large: {app_size} bytes > {APP_REGION_SIZE} max")
+            f"Firmware too large: {app_size} bytes > {APP_MAX_SIZE} max")
 
     for name, val in [('fw_version', fw_version), ('min_bl_version', min_bl_version)]:
         for component in val:

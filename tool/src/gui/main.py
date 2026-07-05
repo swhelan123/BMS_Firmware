@@ -166,9 +166,21 @@ class BmsMainWindow(QMainWindow):
         self._evt_log.append(f"Connected: mode={device.mode.name}")
 
         if device.mode == DeviceMode.BMS_APP:
+            # Config doesn't live-poll like the other tabs — without this,
+            # the Config page stays blank/default even though a valid
+            # config is stored on the target until the user clicks "Read".
+            # Must run BEFORE PollingLoop starts its background thread: the
+            # protocol has one request in flight at a time over one serial
+            # port, and reading concurrently from two threads causes one
+            # side's response bytes to be stolen by the other reader.
+            self._page_cfg.read_from_target()
             self._polling = PollingLoop(self._model, self._state, self._evt_log)
             self._polling.start()
             self._page_dash.set_polling_active(True)
+
+        # Always resync the connection page so button enable-state matches
+        # the actual device mode (handshake may have failed → UNKNOWN).
+        self._page_conn.refresh(self._state)
 
     def _on_connect_tcp_requested(self, host: str, port: int) -> None:
         self._evt_log.append(f"Connecting TCP → {host}:{port} …")
@@ -199,6 +211,8 @@ class BmsMainWindow(QMainWindow):
         self._state.reset()
         self._page_dash.set_polling_active(False)
         self._evt_log.append("Disconnected.")
+        # Resync page buttons (re-enable Connect, disable Disconnect)
+        self._page_conn.refresh(self._state)
 
     # ── Fault actions ─────────────────────────────────────────────────────────
 

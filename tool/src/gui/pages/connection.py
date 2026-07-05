@@ -53,10 +53,13 @@ class ConnectionPage(QWidget):
         ser_lay.addWidget(QLabel("Port:"))
         self._serial_combo = QComboBox()
         self._serial_combo.setEditable(True)
-        self._serial_combo.setMinimumWidth(180)
-        self._serial_combo.addItems(["/dev/tty.usbserial-*", "/dev/ttyUSB0", "COM3"])
-        self._serial_combo.setCurrentText("")
+        self._serial_combo.setMinimumWidth(220)
         ser_lay.addWidget(self._serial_combo)
+
+        self._rescan_btn = QPushButton("Rescan")
+        self._rescan_btn.clicked.connect(self._scan_ports)
+        ser_lay.addWidget(self._rescan_btn)
+        self._scan_ports()
 
         ser_lay.addWidget(QLabel("Baud:"))
         self._baud_spin = QSpinBox()
@@ -127,6 +130,39 @@ class ConnectionPage(QWidget):
 
         layout.addWidget(status_grp)
         layout.addStretch()
+
+    # ── Serial port autodetection ─────────────────────────────────────────────
+
+    def _scan_ports(self) -> None:
+        """Populate the port combo with detected serial devices.
+
+        USB-serial adapters (CP2104 on the BMS master) are listed first and
+        the best match is pre-selected. Falls back to an empty editable box.
+        """
+        try:
+            from serial.tools import list_ports
+            ports = [p.device for p in list_ports.comports()]
+        except Exception:
+            ports = []
+
+        # Rank: usbserial/usbmodem/SLAB first, Bluetooth/debug ports last
+        def rank(dev: str) -> int:
+            d = dev.lower()
+            if "usbserial" in d or "slab" in d: return 0
+            if "usbmodem" in d:                 return 1
+            if "bluetooth" in d or "debug" in d: return 3
+            return 2
+        ports.sort(key=rank)
+
+        current = self._serial_combo.currentText().strip()
+        self._serial_combo.clear()
+        self._serial_combo.addItems(ports)
+        if current and current in ports:
+            self._serial_combo.setCurrentText(current)
+        elif ports and rank(ports[0]) <= 1:
+            self._serial_combo.setCurrentText(ports[0])
+        else:
+            self._serial_combo.setCurrentText("")
 
     # ── Slots ─────────────────────────────────────────────────────────────────
 

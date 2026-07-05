@@ -83,6 +83,21 @@ void test_oversized_app_fails(void) {
     TEST_ASSERT_EQUAL(BL_ERR_APP_SIZE, bl_validate_package_header(&hdr, TEST_MCU_DEV_ID));
 }
 
+void test_app_size_above_max_fails(void) {
+    /* One byte into the metadata page must be rejected */
+    FirmwarePackageHeader hdr = make_valid_header();
+    hdr.app_size = APP_MAX_SIZE + 1u;
+    hdr.pkg_header_crc32 = bl_crc32((const uint8_t *)&hdr, 0x26u);
+    TEST_ASSERT_EQUAL(BL_ERR_APP_SIZE, bl_validate_package_header(&hdr, TEST_MCU_DEV_ID));
+}
+
+void test_app_size_at_max_passes(void) {
+    FirmwarePackageHeader hdr = make_valid_header();
+    hdr.app_size = APP_MAX_SIZE;
+    hdr.pkg_header_crc32 = bl_crc32((const uint8_t *)&hdr, 0x26u);
+    TEST_ASSERT_EQUAL(BL_VALIDATE_OK, bl_validate_package_header(&hdr, TEST_MCU_DEV_ID));
+}
+
 void test_corrupted_header_crc_fails(void) {
     FirmwarePackageHeader hdr = make_valid_header();
     hdr.pkg_header_crc32 ^= 0x1u;
@@ -103,6 +118,8 @@ int main(void) {
     RUN_TEST(test_wrong_app_addr_fails);
     RUN_TEST(test_zero_app_size_fails);
     RUN_TEST(test_oversized_app_fails);
+    RUN_TEST(test_app_size_above_max_fails);
+    RUN_TEST(test_app_size_at_max_passes);
     RUN_TEST(test_corrupted_header_crc_fails);
     RUN_TEST(test_header_size_is_64);
     return UNITY_END();

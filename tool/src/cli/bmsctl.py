@@ -457,6 +457,9 @@ def cmd_config_import_json(args) -> int:
                 setattr(cfg, k, bytes.fromhex(v))
             else:
                 setattr(cfg, k, type(field_val)(v))
+    # Recompute the CRC — the JSON's stored value is stale once any field
+    # is edited. pack() computes the correct CRC; round-trip to refresh it.
+    cfg = BmsConfig.unpack(cfg.pack())
     ok, err_off, msg = validate_config(cfg)
     if not ok:
         print(f"error: imported config invalid at offset 0x{err_off:04X}: {msg}",

@@ -77,3 +77,4 @@
 
 /* ── HSE crystal ──────────────────────────────────────────────────────────── */
 /* PF0/PF1 OSC_IN/OSC_OUT — configured by RCC; not GPIO */
+  

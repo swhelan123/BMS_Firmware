@@ -51,6 +51,7 @@
 #define BL_REJECT_BAD_PROFILE  0x03u
 #define BL_REJECT_BAD_BL_VER   0x04u
 #define BL_REJECT_BAD_SIZE     0x05u
+#define BL_REJECT_FLASH_ERR    0x06u
 
 /* Firmware type for bootloader identity */
 #define FIRMWARE_TYPE_BOOTLOADER 0x0002u
@@ -117,10 +118,12 @@ typedef enum {
 typedef struct {
     UpdateState  state;
     uint32_t     app_size;       /* from BEGIN header */
+    uint32_t     app_crc32;      /* expected image CRC from BEGIN header */
     uint32_t     total_chunks;
     uint32_t     next_chunk;     /* next expected chunk index */
     uint32_t     bytes_written;
     uint32_t     erased_up_to;   /* flash addr through which pages are erased */
+    uint8_t      raw_header[PKG_HEADER_SIZE]; /* persisted to APP_META_ADDR at FINALIZE */
 } BlUpdateCtx;
 
 static BlUpdateCtx s_update_ctx;
@@ -151,7 +154,7 @@ static uint16_t handle_get_capabilities(uint8_t seq,
     pl[12] = 0u;  /* temp_count */
     put_u32le(&pl[13], 0u);  /* feature_flags — none in bootloader */
     pl[17] = 9u;  /* max_payload_log2 = 512 bytes */
-    put_u32le(&pl[18], APP_REGION_SIZE);
+    put_u32le(&pl[18], APP_MAX_SIZE);  /* usable image size (region minus metadata page) */
     put_u32le(&pl[22], CONFIG_SLOT_SIZE);
     return encode_frame(out, PKT_GET_CAPABILITIES, seq, false, pl, 26u);
 }
@@ -164,6 +167,25 @@ static uint16_t handle_get_boot_info(uint8_t seq, uint8_t *out) {
     pl[3] = BL_PROTOCOL_VERSION;
     put_u32le(&pl[4], BL_ENTRY_FLAG);  /* magic that triggers entry */
     return encode_frame(out, PKT_GET_BOOT_INFO, seq, false, pl, 8u);
+}
+
+/* Erase the metadata page and write len bytes (len must be even, ≤ page). */
+static BlFlashResult write_meta_page(const uint8_t *data, uint32_t len) {
+    BlFlashResult r = bl_flash_erase_page(APP_META_ADDR);
+    if (r != BL_FLASH_OK) { return r; }
+    for (uint32_t i = 0u; i + 1u < len; i += 2u) {
+        uint16_t hw = (uint16_t)data[i] | ((uint16_t)data[i + 1u] << 8u);
+        r = bl_flash_write_halfword(APP_META_ADDR + i, hw);
+        if (r != BL_FLASH_OK) { return r; }
+    }
+    return BL_FLASH_OK;
+}
+
+/* Mark the metadata page as "update in progress". */
+static BlFlashResult write_meta_updating_marker(void) {
+    uint8_t marker[4];
+    put_u32le(marker, BL_META_UPDATING);
+    return write_meta_page(marker, sizeof(marker));
 }
 
 /* Erase pages in [APP_START_ADDR, APP_START_ADDR + app_size) lazily.
@@ -213,12 +235,24 @@ static uint16_t handle_update_begin(uint8_t seq,
         return encode_frame(out, PKT_BOOT_UPDATE_BEGIN, seq, true, pl, 10u);
     }
 
-    /* Accepted — set up update context */
+    /* Accepted — mark metadata page "updating" BEFORE any app page is touched,
+     * so a power loss mid-update can never boot a half-written image. */
+    if (write_meta_updating_marker() != BL_FLASH_OK) {
+        pl[0] = BL_RESP_ERR;
+        pl[1] = BL_REJECT_FLASH_ERR;
+        put_u32le(&pl[2], 0u);
+        put_u32le(&pl[6], 0u);
+        return encode_frame(out, PKT_BOOT_UPDATE_BEGIN, seq, true, pl, 10u);
+    }
+
+    /* Set up update context */
     bl_protocol_reset_ctx();
     s_update_ctx.state        = UPD_RECEIVING;
     s_update_ctx.app_size     = hdr->app_size;
+    s_update_ctx.app_crc32    = hdr->app_crc32;
     s_update_ctx.total_chunks = (hdr->app_size + BL_CHUNK_SIZE - 1u) / BL_CHUNK_SIZE;
     s_update_ctx.erased_up_to = APP_START_ADDR;  /* erase lazily as chunks arrive */
+    memcpy(s_update_ctx.raw_header, payload, PKG_HEADER_SIZE);
 
     pl[0] = BL_RESP_OK;
     pl[1] = 0u;  /* no reject reason */
@@ -278,8 +312,23 @@ static uint16_t handle_update_finalize(uint8_t seq, uint8_t *out) {
     if (s_update_ctx.state != UPD_RECEIVING) { goto done; }
     if (s_update_ctx.next_chunk != s_update_ctx.total_chunks) { goto done; }
 
+    /* Verify the written image against the CRC promised in the BEGIN header.
+     * On mismatch the metadata page keeps its UPDATING marker, so the boot
+     * decision will refuse to jump into the bad image. */
     uint32_t computed = bl_flash_crc32_region(APP_START_ADDR, s_update_ctx.app_size);
     put_u32le(&pl[1], computed);
+    if (computed != s_update_ctx.app_crc32) {
+        bl_protocol_reset_ctx();
+        goto done;
+    }
+
+    /* Persist the package header — this atomically arms the full
+     * header+CRC validation path in the boot decision. */
+    if (write_meta_page(s_update_ctx.raw_header, PKG_HEADER_SIZE) != BL_FLASH_OK) {
+        bl_protocol_reset_ctx();
+        goto done;
+    }
+
     pl[0] = BL_RESP_OK;
     bl_protocol_reset_ctx();
 

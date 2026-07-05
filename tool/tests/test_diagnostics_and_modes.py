@@ -274,8 +274,8 @@ class TestPackageBuilder:
             build_package(b'')
 
     def test_oversized_firmware_raises(self):
-        from tool.src.update.package_builder import APP_REGION_SIZE
-        too_big = bytes(APP_REGION_SIZE + 1)
+        from tool.src.update.package_parser import APP_MAX_SIZE
+        too_big = bytes(APP_MAX_SIZE + 1)
         with pytest.raises(PackageBuildError, match="too large"):
             build_package(too_big)
 

@@ -36,8 +36,13 @@ g_pfnVectors:
     .word 0                     /* Reserved                  */
     .word Default_Handler       /* PendSV                    */
     .word SysTick_Handler       /* SysTick                   */
-    /* IRQs 0-81 — fill remaining slots with default handler */
-    .rept 82
+    /* IRQs 0-37 — default handler */
+    .rept 38
+    .word Default_Handler
+    .endr
+    .word USART2_IRQHandler     /* IRQ 38: USART2 global     */
+    /* IRQs 39-81 — default handler */
+    .rept 43
     .word Default_Handler
     .endr
 
@@ -97,5 +102,8 @@ Default_Handler:
 /* ── Weak aliases for handlers defined elsewhere (e.g. board_clock.c) ──── */
     .weak SysTick_Handler
     .thumb_set SysTick_Handler, Default_Handler
+
+    .weak USART2_IRQHandler
+    .thumb_set USART2_IRQHandler, Default_Handler
 
     .size Reset_Handler, .-Reset_Handler

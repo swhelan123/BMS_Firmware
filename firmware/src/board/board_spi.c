@@ -34,7 +34,10 @@ void board_spi_init(void) {
     /* SPI1: master, mode 3 (CPOL=1 CPHA=1), software NSS, fPCLK/16 ≈ 4.5 MHz */
     SPI1->CR1 = SPI_CR1_CPOL | SPI_CR1_CPHA | SPI_CR1_MSTR |
                 SPI_CR1_SSM | SPI_CR1_SSI | (3u << SPI_CR1_BR_Pos);
-    SPI1->CR2 = 0x0700u; /* 8-bit DS */
+    /* 8-bit DS + FRXTH: RXNE must fire per byte (8-bit FIFO threshold).
+     * Without FRXTH the F3 SPI FIFO waits for 16 bits before setting RXNE,
+     * and the byte-wise transfer loop below hangs on its first byte. */
+    SPI1->CR2 = SPI_CR2_FRXTH | 0x0700u;
     SPI1->CR1 |= SPI_CR1_SPE;
 
     s_busy = false;

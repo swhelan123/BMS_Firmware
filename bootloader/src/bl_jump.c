@@ -28,9 +28,12 @@ void bl_jump_to_app(uint32_t app_addr) {
     uint32_t app_sp  = vtable[0];
     uint32_t app_rv  = vtable[1];
 
-    /* Trampoline: set SP and branch to reset vector */
+    /* Trampoline: set SP, re-enable IRQs (reset-like state), branch to app.
+     * IRQs MUST be re-enabled here — the app relies on SysTick immediately,
+     * and a handover with PRIMASK set hangs the first delay loop. */
     __asm volatile (
         "msr msp, %0\n"
+        "cpsie i\n"
         "bx  %1\n"
         :
         : "r" (app_sp), "r" (app_rv)

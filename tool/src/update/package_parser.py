@@ -12,6 +12,9 @@ PKG_HEADER_SIZE   = 64
 BL_MAX_PKG_VERSION = 1
 APP_START_ADDR    = 0x08008000
 APP_REGION_SIZE   = 188 * 1024
+# Last 2 KB page of the app region stores the bootloader's persisted package
+# header (metadata) — usable image size is one page smaller.
+APP_MAX_SIZE      = APP_REGION_SIZE - 2048
 STM32F303VC_DEV_ID = 0x422
 
 
@@ -91,9 +94,9 @@ def validate_header(hdr: PackageHeader,
     if hdr.app_start_addr != APP_START_ADDR:
         raise PackageValidationError(
             f"Wrong app_start_addr: 0x{hdr.app_start_addr:08X}")
-    if hdr.app_size == 0 or hdr.app_size > APP_REGION_SIZE:
+    if hdr.app_size == 0 or hdr.app_size > APP_MAX_SIZE:
         raise PackageValidationError(
-            f"Invalid app_size: {hdr.app_size} (max {APP_REGION_SIZE})")
+            f"Invalid app_size: {hdr.app_size} (max {APP_MAX_SIZE})")
     if raw_header is not None:
         # CRC covers bytes [0x00..0x25] (38 bytes) with crc field at 0x26..0x29 excluded
         computed = crc32_iso_hdlc(raw_header[:0x26])

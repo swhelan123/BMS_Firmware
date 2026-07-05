@@ -2,7 +2,7 @@
  *
  * Flash map:
  *   0x08000000 Bootloader  32KB
- *   0x08008000 Application 188KB  ← this image
+ *   0x08008000 Application 186KB  ← this image (last 2K page = BL metadata)
  *   0x08037000 Config A    8KB
  *   0x08039000 Config B    8KB
  *
@@ -13,7 +13,7 @@
 
 MEMORY
 {
-    FLASH (rx)  : ORIGIN = 0x08008000, LENGTH = 188K
+    FLASH (rx)  : ORIGIN = 0x08008000, LENGTH = 186K  /* last page reserved for bootloader metadata */
     RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 40K
 }
 

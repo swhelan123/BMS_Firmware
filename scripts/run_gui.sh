@@ -77,4 +77,11 @@ if [[ "$USES_FAKE" -eq 1 ]]; then
 fi
 echo ""
 
+# NOTE: PyQt6 resolves its own bundled Qt plugins. Any Qt/DYLD overrides
+# inherited from the user's shell (e.g. a Homebrew qt@5 setup) make the
+# cocoa plugin fail to load — scrub them all before launching.
+unset QT_PLUGIN_PATH QT_QPA_PLATFORM_PLUGIN_PATH QT_QPA_PLATFORM \
+      QT_QPA_PLATFORMTHEME QT_STYLE_OVERRIDE QTDIR \
+      DYLD_LIBRARY_PATH DYLD_FRAMEWORK_PATH DYLD_INSERT_LIBRARIES 2>/dev/null || true
+
 exec "$PYTHON" -m tool.src.gui.main "$@"

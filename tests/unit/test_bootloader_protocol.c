@@ -114,7 +114,7 @@ void test_get_capabilities_flash_app_size(void) {
     uint16_t rlen = build_frame(s_req, 0x0001u, 0u, NULL, 0u);
     uint16_t out_len = 0u;
     bl_protocol_process_frame(s_req, rlen, s_resp, &out_len);
-    TEST_ASSERT_EQUAL_UINT32(APP_REGION_SIZE, get_u32(s_resp, 18u));
+    TEST_ASSERT_EQUAL_UINT32(APP_MAX_SIZE, get_u32(s_resp, 18u));
 }
 
 void test_get_capabilities_response_crc_valid(void) {
@@ -296,32 +296,41 @@ void test_finalize_before_all_chunks_rejected(void) {
     TEST_ASSERT_EQUAL_UINT8(0x01u, s_resp[8]);  /* BL_RESP_ERR */
 }
 
-void test_full_update_flow_crc_matches(void) {
-    /* Use a 512-byte image (2 chunks) of known data */
-    static const uint32_t APP_SIZE = 512u;
+/* Run BEGIN with a header whose app_crc32 matches `image`, then send all
+ * chunks. Returns nothing; asserts each step. */
+static void run_update_through_chunks(const uint8_t *image, uint32_t app_size,
+                                      FirmwarePackageHeader *hdr_out) {
+    FirmwarePackageHeader hdr = make_valid_header(app_size);
+    hdr.app_crc32 = bl_crc32(image, app_size);
+    hdr.pkg_header_crc32 = bl_crc32((const uint8_t *)&hdr, 0x26u);
+    if (hdr_out) *hdr_out = hdr;
 
-    FirmwarePackageHeader hdr = make_valid_header(APP_SIZE);
     uint16_t rlen = build_frame(s_req, 0x0403u, 0u,
                                 (const uint8_t *)&hdr, (uint16_t)sizeof(hdr));
     uint16_t out_len = 0u;
     bl_protocol_process_frame(s_req, rlen, s_resp, &out_len);
     TEST_ASSERT_EQUAL_UINT8(0x00u, s_resp[8]);  /* BEGIN accepted */
 
+    for (uint32_t off = 0u; off < app_size; off += 256u) {
+        uint32_t n = (app_size - off) < 256u ? (app_size - off) : 256u;
+        rlen = build_chunk_frame(s_chunk_req, off / 256u, &image[off], n);
+        bl_protocol_process_frame(s_chunk_req, rlen, s_resp, &out_len);
+        TEST_ASSERT_EQUAL_UINT8(0x00u, s_resp[8]);
+    }
+}
+
+void test_full_update_flow_crc_matches(void) {
+    /* Use a 512-byte image (2 chunks) of known data */
+    static const uint32_t APP_SIZE = 512u;
+
     uint8_t image[512];
     for (uint32_t i = 0u; i < APP_SIZE; i++) image[i] = (uint8_t)(i & 0xFFu);
 
-    /* Chunk 0 */
-    rlen = build_chunk_frame(s_chunk_req, 0u, &image[0], 256u);
-    bl_protocol_process_frame(s_chunk_req, rlen, s_resp, &out_len);
-    TEST_ASSERT_EQUAL_UINT8(0x00u, s_resp[8]);
-
-    /* Chunk 1 */
-    rlen = build_chunk_frame(s_chunk_req, 1u, &image[256], 256u);
-    bl_protocol_process_frame(s_chunk_req, rlen, s_resp, &out_len);
-    TEST_ASSERT_EQUAL_UINT8(0x00u, s_resp[8]);
+    run_update_through_chunks(image, APP_SIZE, NULL);
 
     /* FINALIZE */
-    rlen = build_frame(s_req, 0x0405u, 0u, NULL, 0u);
+    uint16_t out_len = 0u;
+    uint16_t rlen = build_frame(s_req, 0x0405u, 0u, NULL, 0u);
     bl_protocol_process_frame(s_req, rlen, s_resp, &out_len);
     TEST_ASSERT_EQUAL_UINT8(0x00u, s_resp[8]);  /* BL_RESP_OK */
 
@@ -332,6 +341,75 @@ void test_full_update_flow_crc_matches(void) {
                      | ((uint32_t)s_resp[11] << 16u)
                      | ((uint32_t)s_resp[12] << 24u);
     TEST_ASSERT_EQUAL_UINT32(expected_crc, got_crc);
+}
+
+void test_finalize_crc_mismatch_rejected(void) {
+    /* Header promises a CRC that will not match the written image */
+    static const uint32_t APP_SIZE = 256u;
+    FirmwarePackageHeader hdr = make_valid_header(APP_SIZE);  /* 0xDEADBEEF crc */
+    uint16_t rlen = build_frame(s_req, 0x0403u, 0u,
+                                (const uint8_t *)&hdr, (uint16_t)sizeof(hdr));
+    uint16_t out_len = 0u;
+    bl_protocol_process_frame(s_req, rlen, s_resp, &out_len);
+    TEST_ASSERT_EQUAL_UINT8(0x00u, s_resp[8]);
+
+    uint8_t image[256];
+    memset(image, 0x5Au, sizeof(image));
+    rlen = build_chunk_frame(s_chunk_req, 0u, image, 256u);
+    bl_protocol_process_frame(s_chunk_req, rlen, s_resp, &out_len);
+    TEST_ASSERT_EQUAL_UINT8(0x00u, s_resp[8]);
+
+    rlen = build_frame(s_req, 0x0405u, 0u, NULL, 0u);
+    bl_protocol_process_frame(s_req, rlen, s_resp, &out_len);
+    TEST_ASSERT_EQUAL_UINT8(0x01u, s_resp[8]);  /* BL_RESP_ERR — CRC mismatch */
+
+    /* Metadata page must NOT contain a persisted header */
+    const uint8_t *meta = bl_flash_sim_ptr() + APP_MAX_SIZE;
+    uint32_t meta_word = (uint32_t)meta[0] | ((uint32_t)meta[1] << 8u)
+                       | ((uint32_t)meta[2] << 16u) | ((uint32_t)meta[3] << 24u);
+    TEST_ASSERT_NOT_EQUAL(PKG_MAGIC, meta_word);
+}
+
+void test_begin_writes_updating_marker(void) {
+    FirmwarePackageHeader hdr = make_valid_header(512u);
+    uint16_t rlen = build_frame(s_req, 0x0403u, 0u,
+                                (const uint8_t *)&hdr, (uint16_t)sizeof(hdr));
+    uint16_t out_len = 0u;
+    bl_protocol_process_frame(s_req, rlen, s_resp, &out_len);
+    TEST_ASSERT_EQUAL_UINT8(0x00u, s_resp[8]);
+
+    const uint8_t *meta = bl_flash_sim_ptr() + APP_MAX_SIZE;
+    uint32_t meta_word = (uint32_t)meta[0] | ((uint32_t)meta[1] << 8u)
+                       | ((uint32_t)meta[2] << 16u) | ((uint32_t)meta[3] << 24u);
+    TEST_ASSERT_EQUAL_UINT32(BL_META_UPDATING, meta_word);
+}
+
+void test_finalize_persists_header_to_meta_page(void) {
+    static const uint32_t APP_SIZE = 512u;
+    uint8_t image[512];
+    for (uint32_t i = 0u; i < APP_SIZE; i++) image[i] = (uint8_t)((i * 7u) & 0xFFu);
+
+    FirmwarePackageHeader hdr;
+    run_update_through_chunks(image, APP_SIZE, &hdr);
+
+    uint16_t out_len = 0u;
+    uint16_t rlen = build_frame(s_req, 0x0405u, 0u, NULL, 0u);
+    bl_protocol_process_frame(s_req, rlen, s_resp, &out_len);
+    TEST_ASSERT_EQUAL_UINT8(0x00u, s_resp[8]);
+
+    /* Full 64-byte header must sit at the metadata page */
+    const uint8_t *meta = bl_flash_sim_ptr() + APP_MAX_SIZE;
+    TEST_ASSERT_EQUAL_MEMORY((const uint8_t *)&hdr, meta, sizeof(hdr));
+}
+
+void test_begin_oversize_app_rejected(void) {
+    FirmwarePackageHeader hdr = make_valid_header(APP_MAX_SIZE + 1u);
+    uint16_t rlen = build_frame(s_req, 0x0403u, 0u,
+                                (const uint8_t *)&hdr, (uint16_t)sizeof(hdr));
+    uint16_t out_len = 0u;
+    bl_protocol_process_frame(s_req, rlen, s_resp, &out_len);
+    TEST_ASSERT_EQUAL_UINT8(0x01u, s_resp[8]);   /* BL_RESP_ERR */
+    TEST_ASSERT_EQUAL_UINT8(0x05u, s_resp[9]);   /* BL_REJECT_BAD_SIZE */
 }
 
 /* ── Tests: BOOT_UPDATE_ABORT ─────────────────────────────────────────────── */
@@ -402,6 +480,10 @@ int main(void) {
 
     RUN_TEST(test_finalize_before_all_chunks_rejected);
     RUN_TEST(test_full_update_flow_crc_matches);
+    RUN_TEST(test_finalize_crc_mismatch_rejected);
+    RUN_TEST(test_begin_writes_updating_marker);
+    RUN_TEST(test_finalize_persists_header_to_meta_page);
+    RUN_TEST(test_begin_oversize_app_rejected);
 
     RUN_TEST(test_abort_resets_state);
     RUN_TEST(test_abort_before_begin_still_ok);

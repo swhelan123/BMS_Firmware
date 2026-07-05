@@ -525,6 +525,17 @@ class ConfigPage(QWidget):
     # ── Action handlers ───────────────────────────────────────────────────────
 
     def _on_read(self) -> None:
+        self.read_from_target()
+
+    def read_from_target(self) -> None:
+        """Read the live config from the connected target and populate the
+        form. Called on the Read button, and automatically right after a
+        successful BMS_APP connect (see MainWindow._finish_connect) since
+        this page — unlike Dashboard/Faults/Cells — doesn't live-poll.
+
+        Broad except: this runs unattended during connect (not just from a
+        button click), so a transient serial hiccup here must degrade to
+        "config not loaded, click Read to retry" — never crash the app."""
         model: TargetModel = getattr(self._main, '_model', None)
         if model is None:
             return
@@ -532,7 +543,7 @@ class ConfigPage(QWidget):
             self._cfg = model.read_config()
             self._cfg_to_widgets(self._cfg)
             self._set_status("Config read from target.", kind='ok')
-        except (ProtocolError, TargetRefusedError) as e:
+        except (ProtocolError, TargetRefusedError, OSError) as e:
             self._set_status(str(e), kind='error')
 
     def _on_load(self) -> None:

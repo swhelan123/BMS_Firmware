@@ -27,7 +27,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # ── Flash map — must match bms_constants.h ────────────────────────────────────
 APP_START_ADDR="0x08008000"
-APP_MAX_SIZE=$((188 * 1024))   # 188 KB — ends at CONFIG_A_START_ADDR
+APP_MAX_SIZE=$((186 * 1024))   # 186 KB — last 2K page of app region = BL metadata
 BL_START_ADDR="0x08000000"
 BL_SIZE=$((32 * 1024))         # 32 KB
 CONFIG_A_ADDR="0x08037000"
