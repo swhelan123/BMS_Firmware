@@ -59,6 +59,50 @@ def test_invalid_cell_count_fails():
     assert not ok
     assert off == 64
 
+
+def _segment_mask(count: int) -> bytes:
+    """10-byte mask with bits [0..count) set, matching an N-segment pack."""
+    m = bytearray(10)
+    for i in range(count):
+        m[i // 8] |= (1 << (i % 8))
+    return bytes(m)
+
+def _make_segments(count: int) -> BmsConfig:
+    cfg = make_valid()
+    cfg.cell_count = count
+    cfg.temp_count = count
+    cfg.required_cell_mask   = _segment_mask(count)
+    cfg.required_temp_mask   = _segment_mask(count)
+    cfg.balance_allowed_mask = _segment_mask(count)
+    return cfg
+
+def test_60cell_config_passes():
+    ok, _, _ = validate_config(_make_segments(60))
+    assert ok
+
+def test_non_segment_count_fails():
+    cfg = _make_segments(60)
+    cfg.cell_count = 61  # not a multiple of 15
+    ok, off, _ = validate_config(cfg)
+    assert not ok
+    assert off == 64
+
+def test_cell_temp_mismatch_fails():
+    cfg = _make_segments(60)
+    cfg.temp_count = 75
+    ok, off, _ = validate_config(cfg)
+    assert not ok
+    assert off == 65
+
+def test_required_mask_beyond_count_fails():
+    cfg = _make_segments(60)
+    mask = bytearray(cfg.required_cell_mask)
+    mask[7] |= (1 << 4)  # bit 60 — absent cell
+    cfg.required_cell_mask = bytes(mask)
+    ok, off, _ = validate_config(cfg)
+    assert not ok
+    assert off == FIELD_OFFSETS['required_cell_mask']
+
 def test_temp_ordering_fails():
     cfg = make_valid()
     cfg.temp_charge_warn_cx10 = cfg.temp_charge_hard_cx10  # equal → fail

@@ -119,3 +119,10 @@ void bms_config_load_defaults(BmsConfig *out);
 
 /* CRC-32/ISO-HDLC over bytes [0..CONFIG_SCHEMA_SIZE-5], config_crc32 field zeroed. */
 uint32_t bms_config_compute_crc(const BmsConfig *cfg);
+
+/* Number of LTC6812 ICs (segments) actually populated, from the active config.
+ * Derived from cell_count / CELLS_PER_IC; always in [MIN_CELL_IC_COUNT,
+ * CELL_IC_COUNT]. Use these — not CELL_IC_COUNT — to bound isoSPI chain reads
+ * and measurement population so the same image serves 4- and 5-segment packs. */
+uint8_t bms_config_active_cell_ics(void);
+uint8_t bms_config_active_temp_ics(void);

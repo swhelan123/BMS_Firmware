@@ -113,10 +113,15 @@ BmsResult bms_config_validate(const BmsConfig *cfg, uint16_t *err_field_offset) 
         if (cfg->reserved_header[i] != 0u) { FAIL(18); }
     }
 
-    /* Topology */
-    if (cfg->cell_count != 75u)       { FAIL(64); }
-    if (cfg->temp_count != 75u)       { FAIL(65); }
-    if (cfg->reserved_topology != 0u) { FAIL(66); }
+    /* Topology — the pack is built from whole segments (one LTC6812 each),
+     * so the active count must be a whole number of segments, at least one
+     * and no more than the image's max chain. Cells and temps live on the
+     * same slave board, so their counts must match. */
+    if (cfg->cell_count == 0u ||
+        cfg->cell_count > TOTAL_CELL_COUNT ||
+        (cfg->cell_count % CELLS_PER_IC) != 0u) { FAIL(64); }
+    if (cfg->temp_count != cfg->cell_count)     { FAIL(65); }
+    if (cfg->reserved_topology != 0u)           { FAIL(66); }
 
     /* INV-01: cell threshold ordering */
     if (cfg->cell_uv_hard_mv >= cfg->cell_uv_soft_mv)          { FAIL(68); }
@@ -157,6 +162,22 @@ BmsResult bms_config_validate(const BmsConfig *cfg, uint16_t *err_field_offset) 
     if (cfg->required_cell_mask[9]   & CONFIG_MASK_RESERVED_MASK) { FAIL(124); }
     if (cfg->required_temp_mask[9]   & CONFIG_MASK_RESERVED_MASK) { FAIL(134); }
     if (cfg->balance_allowed_mask[9] & CONFIG_MASK_RESERVED_MASK) { FAIL(144); }
+
+    /* INV-07: no mask may reference a channel beyond the active count. A
+     * cell/temp on an absent segment can never report a valid reading, so
+     * requiring it (or allowing balance on it) would guarantee a fault or
+     * drive a non-existent balancer. Bits [cell_count..79] must be zero. */
+    for (uint16_t i = cfg->cell_count; i < 80u; i++) {
+        uint8_t byte = (uint8_t)(i >> 3u);
+        uint8_t bit  = (uint8_t)(i & 7u);
+        if (cfg->required_cell_mask[byte]   & (1u << bit)) { FAIL(124); }
+        if (cfg->balance_allowed_mask[byte] & (1u << bit)) { FAIL(144); }
+    }
+    for (uint16_t i = cfg->temp_count; i < 80u; i++) {
+        uint8_t byte = (uint8_t)(i >> 3u);
+        uint8_t bit  = (uint8_t)(i & 7u);
+        if (cfg->required_temp_mask[byte] & (1u << bit)) { FAIL(134); }
+    }
 
     /* Calibration bounds */
     if (cfg->vpack_gain_x1000 == 0u)    { FAIL(154); }
@@ -213,6 +234,25 @@ BmsResult bms_config_load(void) {
 
 const BmsConfig *bms_config_get(void) {
     return &s_active_config;
+}
+
+uint8_t bms_config_active_cell_ics(void) {
+    /* cell_count is validated as a non-zero multiple of CELLS_PER_IC no
+     * greater than TOTAL_CELL_COUNT, so this is always in
+     * [MIN_CELL_IC_COUNT, CELL_IC_COUNT]. Clamp defensively anyway — this
+     * bounds an isoSPI chain read, and an out-of-range value would walk
+     * the static buffers off the end. */
+    uint8_t ics = (uint8_t)(s_active_config.cell_count / CELLS_PER_IC);
+    if (ics < MIN_CELL_IC_COUNT) { ics = MIN_CELL_IC_COUNT; }
+    if (ics > CELL_IC_COUNT)     { ics = CELL_IC_COUNT; }
+    return ics;
+}
+
+uint8_t bms_config_active_temp_ics(void) {
+    uint8_t ics = (uint8_t)(s_active_config.temp_count / TEMPS_PER_IC);
+    if (ics < MIN_CELL_IC_COUNT) { ics = MIN_CELL_IC_COUNT; }
+    if (ics > TEMP_IC_COUNT)     { ics = TEMP_IC_COUNT; }
+    return ics;
 }
 
 BmsResult bms_config_apply_ram(const BmsConfig *cfg) {

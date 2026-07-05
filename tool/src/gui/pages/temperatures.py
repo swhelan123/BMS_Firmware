@@ -51,12 +51,22 @@ class TemperaturesPage(QWidget):
         sum_lay.addStretch()
         layout.addWidget(sum_grp)
 
+        # One column per populated segment; follows target temp_count.
         self._table = QTableWidget(15, 5)
-        self._table.setHorizontalHeaderLabels(
-            [f"Temps {i*15}–{i*15+14}" for i in range(5)])
+        self._segments = 0
+        self._set_segments(5)
         self._table.verticalHeader().setVisible(False)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         layout.addWidget(self._table)
+
+    def _set_segments(self, n: int) -> None:
+        n = max(1, min(5, n))
+        if n == self._segments:
+            return
+        self._segments = n
+        self._table.setColumnCount(n)
+        self._table.setHorizontalHeaderLabels(
+            [f"Temps {i*15}–{i*15+14}" for i in range(n)])
 
     def refresh(self, state: AppState) -> None:
         ts = state.temps
@@ -75,7 +85,9 @@ class TemperaturesPage(QWidget):
         inv = ts.temp_count - len(valid)
         self._warn_lbl.setText(f"⚠ {inv} invalid sensors" if inv else "")
 
-        for idx, t in enumerate(ts.temps_cx10[:75]):
+        self._set_segments((ts.temp_count + 14) // 15 if ts.temp_count else 5)
+
+        for idx, t in enumerate(ts.temps_cx10[:ts.temp_count]):
             row = idx % 15
             col = idx // 15
             if t == TEMP_INVALID:

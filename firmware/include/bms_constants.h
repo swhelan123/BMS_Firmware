@@ -39,13 +39,25 @@
 #define SRAM_BASE_ADDR              (0x20000000u)
 #define SRAM_SIZE_BYTES             (40u * 1024u)
 
-/* ── Topology — fixed for HW_PROFILE_ID 1 ────────────────────────────────── */
-#define CELL_IC_COUNT               (5u)   /* number of LTC6812 ICs on CELL chain */
-#define TEMP_IC_COUNT               (5u)   /* number of LTC6812 ICs on TEMP chain */
+/* ── Topology — MAX capacity for HW_PROFILE_ID 1 ─────────────────────────────
+ * The firmware image is built for the maximum chain (5 segments). The number
+ * of segments actually populated is a runtime property of the stored config
+ * (cfg->cell_count / cfg->temp_count), so a 4-segment (60-cell) and a
+ * 5-segment (75-cell) pack run the SAME firmware image — only the config and
+ * the physical isoSPI chain differ, no reflash required.
+ *
+ * CELL_IC_COUNT/TEMP_IC_COUNT and TOTAL_* size the static buffers and the
+ * protocol payloads to the maximum. The active count comes from config via
+ * bms_config_active_cell_ics() / bms_config_active_temp_ics().
+ *
+ * One LTC6812 == one segment == CELLS_PER_IC cells + TEMPS_PER_IC sensors. */
+#define CELL_IC_COUNT               (5u)   /* MAX LTC6812 ICs on CELL chain */
+#define TEMP_IC_COUNT               (5u)   /* MAX LTC6812 ICs on TEMP chain */
 #define CELLS_PER_IC                (15u)
 #define TEMPS_PER_IC                (15u)
-#define TOTAL_CELL_COUNT            (CELL_IC_COUNT * CELLS_PER_IC)   /* 75 */
-#define TOTAL_TEMP_COUNT            (TEMP_IC_COUNT * TEMPS_PER_IC)   /* 75 */
+#define TOTAL_CELL_COUNT            (CELL_IC_COUNT * CELLS_PER_IC)   /* 75 max */
+#define TOTAL_TEMP_COUNT            (TEMP_IC_COUNT * TEMPS_PER_IC)   /* 75 max */
+#define MIN_CELL_IC_COUNT           (1u)   /* at least one segment must be present */
 
 /* ── Config schema ────────────────────────────────────────────────────────── */
 #define CONFIG_MAGIC                (0xBBCC0001u)

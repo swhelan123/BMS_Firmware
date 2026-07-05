@@ -90,13 +90,14 @@ void bms_balance_tick(const CellSnapshot *cells,
         }
     }
 
+    const uint8_t active_ics = bms_config_active_cell_ics();
     if (s_is_on_phase) {
-        ltc6812_cell_chain_set_balance(BMS_CHAIN_CELL, CELL_IC_COUNT, dcc_mask);
+        ltc6812_cell_chain_set_balance(BMS_CHAIN_CELL, active_ics, dcc_mask);
     } else {
-        ltc6812_cell_chain_clear_balance(BMS_CHAIN_CELL, CELL_IC_COUNT);
+        ltc6812_cell_chain_clear_balance(BMS_CHAIN_CELL, active_ics);
     }
 }
 
 void bms_balance_disable_all(void) {
-    ltc6812_cell_chain_clear_balance(BMS_CHAIN_CELL, CELL_IC_COUNT);
+    ltc6812_cell_chain_clear_balance(BMS_CHAIN_CELL, bms_config_active_cell_ics());
 }

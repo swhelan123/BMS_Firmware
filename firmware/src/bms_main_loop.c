@@ -16,6 +16,7 @@
 #include "board_clock.h"
 #include "bms_hal.h"
 #include "bms_constants.h"
+#include <string.h>
 
 static uint32_t s_last_cell_ms;
 static uint32_t s_last_temp_ms;
@@ -65,7 +66,9 @@ static void run_periodic_openwire(uint32_t now, const BmsConfig *cfg) {
 
     kick_iwdg(); /* the scan blocks for several ms; keep margin */
     bool detected[TOTAL_CELL_COUNT];
-    BmsResult r = ltc6812_run_open_wire(BMS_CHAIN_CELL, CELL_IC_COUNT, detected);
+    memset(detected, 0, sizeof(detected)); /* inactive segments never open */
+    BmsResult r = ltc6812_run_open_wire(BMS_CHAIN_CELL,
+                                        bms_config_active_cell_ics(), detected);
     bms_diagnostics_set_open_wire(r == BMS_OK, detected);
     if (r == BMS_OK) {
         bms_faults_apply_openwire(detected, cfg);
@@ -86,9 +89,11 @@ void bms_main_loop_init(void) {
     /* Load config from flash. If no valid config, load defaults and set fault. */
     BmsResult cfg_r = bms_config_load();
 
-    /* Initialise LTC6812 chains with safe configuration */
-    ltc6812_init_chain(BMS_CHAIN_CELL, CELL_IC_COUNT);
-    ltc6812_init_chain(BMS_CHAIN_TEMP, TEMP_IC_COUNT);
+    /* Initialise LTC6812 chains with safe configuration. Config is loaded
+     * above, so use the active segment counts — a 4-segment pack only has
+     * 4 ICs on each chain to talk to. */
+    ltc6812_init_chain(BMS_CHAIN_CELL, bms_config_active_cell_ics());
+    ltc6812_init_chain(BMS_CHAIN_TEMP, bms_config_active_temp_ics());
 
     /* Initialise BMS subsystems */
     bms_state_init();

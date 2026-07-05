@@ -18,6 +18,8 @@ static BmsConfig s_cfg;
 
 void bms_config_load_defaults(BmsConfig *cfg) {
     memset(cfg, 0, sizeof(*cfg));
+    cfg->cell_count          = TOTAL_CELL_COUNT;  /* full chain by default */
+    cfg->temp_count          = TOTAL_TEMP_COUNT;
     cfg->temp_settle_time_ms = 5;
     cfg->vbat_gain_x1000     = 1000;
     cfg->vpack_gain_x1000    = 1000;
@@ -25,6 +27,22 @@ void bms_config_load_defaults(BmsConfig *cfg) {
 }
 
 const BmsConfig *bms_config_get(void) { return &s_cfg; }
+
+/* Mirror the real accessors (bms_config.c) so measurement/balance code under
+ * test bounds its chain reads by the mock's configured count. */
+uint8_t bms_config_active_cell_ics(void) {
+    uint8_t ics = (uint8_t)(s_cfg.cell_count / CELLS_PER_IC);
+    if (ics < MIN_CELL_IC_COUNT) { ics = MIN_CELL_IC_COUNT; }
+    if (ics > CELL_IC_COUNT)     { ics = CELL_IC_COUNT; }
+    return ics;
+}
+
+uint8_t bms_config_active_temp_ics(void) {
+    uint8_t ics = (uint8_t)(s_cfg.temp_count / TEMPS_PER_IC);
+    if (ics < MIN_CELL_IC_COUNT) { ics = MIN_CELL_IC_COUNT; }
+    if (ics > TEMP_IC_COUNT)     { ics = TEMP_IC_COUNT; }
+    return ics;
+}
 
 void mock_meas_config_init(void) { bms_config_load_defaults(&s_cfg); }
 

@@ -36,10 +36,14 @@ def validate_config(cfg: BmsConfig) -> tuple:
 
     if cfg.reserved_header != bytes(46):
         return fail('reserved_header', "reserved_header must be zero")
-    if cfg.cell_count != 75:
-        return fail('cell_count', "cell_count must be 75")
-    if cfg.temp_count != 75:
-        return fail('temp_count', "temp_count must be 75")
+    # Topology: whole segments only (15 cells/temps per LTC6812), 1..5
+    # segments, cells and temps on the same board so counts must match.
+    # Mirrors bms_config.c validate().
+    if cfg.cell_count == 0 or cfg.cell_count > 75 or cfg.cell_count % 15 != 0:
+        return fail('cell_count',
+                    "cell_count must be a multiple of 15 in 15..75 (1-5 segments)")
+    if cfg.temp_count != cfg.cell_count:
+        return fail('temp_count', "temp_count must equal cell_count")
     if cfg.reserved_topology != 0:
         return fail('reserved_topology', "reserved_topology must be zero")
 
@@ -93,6 +97,23 @@ def validate_config(cfg: BmsConfig) -> tuple:
         return fail('required_temp_mask', "required_temp_mask bits 75-79 must be zero")
     if cfg.balance_allowed_mask[9] & 0xF8:
         return fail('balance_allowed_mask', "balance_allowed_mask bits 75-79 must be zero")
+
+    # INV-07: no mask may reference a channel beyond the active count — a
+    # cell/temp on an absent segment can't report a valid reading, so
+    # requiring it would guarantee a fault. Mirrors bms_config.c.
+    def _bit(mask, i):
+        return mask[i // 8] & (1 << (i % 8))
+    for i in range(cfg.cell_count, 80):
+        if _bit(cfg.required_cell_mask, i):
+            return fail('required_cell_mask',
+                        f"required_cell_mask bit {i} set beyond cell_count={cfg.cell_count}")
+        if _bit(cfg.balance_allowed_mask, i):
+            return fail('balance_allowed_mask',
+                        f"balance_allowed_mask bit {i} set beyond cell_count={cfg.cell_count}")
+    for i in range(cfg.temp_count, 80):
+        if _bit(cfg.required_temp_mask, i):
+            return fail('required_temp_mask',
+                        f"required_temp_mask bit {i} set beyond temp_count={cfg.temp_count}")
 
     if cfg.vpack_gain_x1000 == 0:
         return fail('vpack_gain_x1000', "vpack_gain_x1000 must be > 0")

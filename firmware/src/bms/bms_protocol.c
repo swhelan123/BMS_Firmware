@@ -96,8 +96,10 @@ static void handle_get_capabilities(uint8_t seq) {
     resp[8]  = (uint8_t)(PROTOCOL_VERSION >> 8u);
     resp[9]  = (uint8_t)(CONFIG_SCHEMA_VERSION & 0xFFu);
     resp[10] = (uint8_t)(CONFIG_SCHEMA_VERSION >> 8u);
-    resp[11] = (uint8_t)TOTAL_CELL_COUNT;
-    resp[12] = (uint8_t)TOTAL_TEMP_COUNT;
+    /* Report the ACTIVE count from config, not the image maximum — the tool
+     * sizes its cell/temp views from this so a 60-cell pack shows 60. */
+    resp[11] = bms_config_get()->cell_count;
+    resp[12] = bms_config_get()->temp_count;
     uint32_t ff = BMS_APP_FEATURE_FLAGS;
     resp[13] = (uint8_t)(ff); resp[14] = (uint8_t)(ff >> 8);
     resp[15] = (uint8_t)(ff >> 16); resp[16] = (uint8_t)(ff >> 24);
@@ -144,8 +146,10 @@ static void handle_get_cells(uint8_t seq, const uint8_t *payload, uint16_t len) 
     uint16_t resp_len = include_validity ? PKT_GET_CELLS_RESP_FULL : PKT_GET_CELLS_RESP_BASE;
     uint8_t resp[PKT_GET_CELLS_RESP_FULL];
     memset(resp, 0, sizeof(resp));
-    resp[0] = TOTAL_CELL_COUNT & 0xFFu;
-    resp[1] = (TOTAL_CELL_COUNT >> 8u) & 0xFFu;
+    /* Count field = active cells; payload stays MAX-width so the wire format
+     * is fixed. Slots beyond the active count carry 0 / invalid. */
+    resp[0] = bms_config_get()->cell_count & 0xFFu;
+    resp[1] = (bms_config_get()->cell_count >> 8u) & 0xFFu;
     for (uint8_t i = 0; i < TOTAL_CELL_COUNT; i++) {
         uint16_t mv = cells->mv[i];
         resp[2 + i*2]   = (uint8_t)(mv & 0xFFu);
@@ -165,7 +169,7 @@ static void handle_get_temps(uint8_t seq) {
     const TempSnapshot *temps = bms_measurements_get_temps();
     uint8_t resp[PKT_GET_TEMPS_RESP_SIZE];
     memset(resp, 0, sizeof(resp));
-    resp[0] = TOTAL_TEMP_COUNT & 0xFFu;
+    resp[0] = bms_config_get()->temp_count & 0xFFu;
     resp[1] = 0u;
     for (uint8_t i = 0; i < TOTAL_TEMP_COUNT; i++) {
         int16_t t = temps->cx10[i];
@@ -266,7 +270,9 @@ static void handle_get_diagnostics_summary(uint8_t seq) {
 
 static void handle_run_openwire(uint8_t seq) {
     bool detected[TOTAL_CELL_COUNT];
-    BmsResult r = ltc6812_run_open_wire(BMS_CHAIN_CELL, CELL_IC_COUNT, detected);
+    memset(detected, 0, sizeof(detected)); /* inactive segments never open */
+    BmsResult r = ltc6812_run_open_wire(BMS_CHAIN_CELL,
+                                        bms_config_active_cell_ics(), detected);
     bool valid = (r == BMS_OK);
     bms_diagnostics_set_open_wire(valid, detected);
     if (valid) {
@@ -351,27 +357,31 @@ static void handle_get_outputs_snapshot(uint8_t seq) {
 }
 
 static void handle_probe_cell_chain(uint8_t seq) {
-    bool pec_ok[CELL_IC_COUNT];
+    const uint8_t active_ics = bms_config_active_cell_ics();
+    bool pec_ok[CELL_IC_COUNT] = {0};
     uint8_t cfga_out[CELL_IC_COUNT][LTC6812_REG_GROUP_BYTES];
-    BmsResult r = ltc6812_probe_chain(BMS_CHAIN_CELL, CELL_IC_COUNT, pec_ok, cfga_out);
+    memset(cfga_out, 0, sizeof(cfga_out));
+    BmsResult r = ltc6812_probe_chain(BMS_CHAIN_CELL, active_ics, pec_ok, cfga_out);
 
     BmsChainProbeResult probe;
     memset(&probe, 0, sizeof(probe));
     probe.run         = true;
     probe.result      = r;
-    probe.ic_count    = CELL_IC_COUNT;
+    probe.ic_count    = active_ics;
     probe.timestamp_ms = board_clock_get_ms();
-    for (uint8_t ic = 0; ic < CELL_IC_COUNT; ic++) {
+    for (uint8_t ic = 0; ic < active_ics; ic++) {
         probe.ic[ic].responded = pec_ok[ic];
         if (pec_ok[ic]) { memcpy(probe.ic[ic].cfga, cfga_out[ic], LTC6812_REG_GROUP_BYTES); }
     }
     bms_diagnostics_store_cell_probe(&probe);
 
+    /* Response stays MAX-width for a fixed wire format; ic_count field tells
+     * the tool how many entries are meaningful. */
     uint8_t resp[2u + CELL_IC_COUNT * 7u];
     memset(resp, 0, sizeof(resp));
     resp[0] = (r == BMS_OK) ? 0u : 1u;
-    resp[1] = CELL_IC_COUNT;
-    for (uint8_t ic = 0; ic < CELL_IC_COUNT; ic++) {
+    resp[1] = active_ics;
+    for (uint8_t ic = 0; ic < active_ics; ic++) {
         uint8_t *p = &resp[2u + ic * 7u];
         p[0] = pec_ok[ic] ? 1u : 0u;
         if (pec_ok[ic]) { memcpy(&p[1], cfga_out[ic], LTC6812_REG_GROUP_BYTES); }
@@ -380,17 +390,19 @@ static void handle_probe_cell_chain(uint8_t seq) {
 }
 
 static void handle_probe_temp_chain(uint8_t seq) {
-    bool pec_ok[TEMP_IC_COUNT];
+    const uint8_t active_ics = bms_config_active_temp_ics();
+    bool pec_ok[TEMP_IC_COUNT] = {0};
     uint8_t cfga_out[TEMP_IC_COUNT][LTC6812_REG_GROUP_BYTES];
-    BmsResult r = ltc6812_probe_chain(BMS_CHAIN_TEMP, TEMP_IC_COUNT, pec_ok, cfga_out);
+    memset(cfga_out, 0, sizeof(cfga_out));
+    BmsResult r = ltc6812_probe_chain(BMS_CHAIN_TEMP, active_ics, pec_ok, cfga_out);
 
     BmsChainProbeResult probe;
     memset(&probe, 0, sizeof(probe));
     probe.run         = true;
     probe.result      = r;
-    probe.ic_count    = TEMP_IC_COUNT;
+    probe.ic_count    = active_ics;
     probe.timestamp_ms = board_clock_get_ms();
-    for (uint8_t ic = 0; ic < TEMP_IC_COUNT; ic++) {
+    for (uint8_t ic = 0; ic < active_ics; ic++) {
         probe.ic[ic].responded = pec_ok[ic];
         if (pec_ok[ic]) { memcpy(probe.ic[ic].cfga, cfga_out[ic], LTC6812_REG_GROUP_BYTES); }
     }
@@ -399,8 +411,8 @@ static void handle_probe_temp_chain(uint8_t seq) {
     uint8_t resp[2u + TEMP_IC_COUNT * 7u];
     memset(resp, 0, sizeof(resp));
     resp[0] = (r == BMS_OK) ? 0u : 1u;
-    resp[1] = TEMP_IC_COUNT;
-    for (uint8_t ic = 0; ic < TEMP_IC_COUNT; ic++) {
+    resp[1] = active_ics;
+    for (uint8_t ic = 0; ic < active_ics; ic++) {
         uint8_t *p = &resp[2u + ic * 7u];
         p[0] = pec_ok[ic] ? 1u : 0u;
         if (pec_ok[ic]) { memcpy(&p[1], cfga_out[ic], LTC6812_REG_GROUP_BYTES); }
@@ -468,8 +480,8 @@ static void handle_measure_cells_once(uint8_t seq) {
     uint8_t resp[MEASURE_CELLS_RESP_SIZE];
     memset(resp, 0, sizeof(resp));
     resp[0] = (r == BMS_OK) ? 0u : 1u;
-    resp[1] = (uint8_t)(TOTAL_CELL_COUNT & 0xFFu);
-    resp[2] = (uint8_t)((TOTAL_CELL_COUNT >> 8u) & 0xFFu);
+    resp[1] = (uint8_t)(bms_config_get()->cell_count & 0xFFu);
+    resp[2] = 0u;
     for (uint8_t i = 0; i < TOTAL_CELL_COUNT; i++) {
         resp[3u + i*2u]   = (uint8_t)(cells->mv[i] & 0xFFu);
         resp[3u + i*2u+1u] = (uint8_t)(cells->mv[i] >> 8u);
@@ -490,7 +502,7 @@ static void handle_measure_temps_once(uint8_t seq) {
     uint8_t resp[MEASURE_TEMPS_RESP_SIZE];
     memset(resp, 0, sizeof(resp));
     resp[0] = (r == BMS_OK) ? 0u : 1u;
-    resp[1] = (uint8_t)(TOTAL_TEMP_COUNT & 0xFFu);
+    resp[1] = (uint8_t)(bms_config_get()->temp_count & 0xFFu);
     resp[2] = 0u;
     for (uint8_t i = 0; i < TOTAL_TEMP_COUNT; i++) {
         uint16_t raw = (uint16_t)temps->cx10[i];

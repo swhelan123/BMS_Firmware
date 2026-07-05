@@ -87,15 +87,28 @@ static int16_t enepaq_voltage_to_cx10(uint16_t mv) {
 
 /* ── Cell cycle ───────────────────────────────────────────────────────────── */
 BmsResult bms_measurements_run_cell_cycle(void) {
+    /* Only read the segments the active config says are populated. Reading a
+     * shorter isoSPI chain than the buffer allows a 4-segment pack to run the
+     * same 5-segment image; cells on absent segments are always INVALID (and
+     * their required-mask bits are forced zero at config-validation time, so
+     * they never contribute to fault coverage). */
+    const uint8_t active_ics = bms_config_active_cell_ics();
+
     uint16_t raw_mv[CELL_IC_COUNT][CELLS_PER_IC];
     bool pec_ok[CELL_IC_COUNT];
 
-    BmsResult r = ltc6812_read_cells(BMS_CHAIN_CELL, CELL_IC_COUNT, raw_mv, pec_ok);
+    BmsResult r = ltc6812_read_cells(BMS_CHAIN_CELL, active_ics, raw_mv, pec_ok);
 
     s_cells.timestamp_ms = board_clock_get_ms();
 
+    /* Cells beyond the active chain never have a reading. */
+    for (uint16_t i = (uint16_t)active_ics * CELLS_PER_IC; i < TOTAL_CELL_COUNT; i++) {
+        s_cells.mv[i]    = 0u;
+        s_cells.valid[i] = false;
+    }
+
     if (r == BMS_OK) {
-        for (uint8_t ic = 0; ic < CELL_IC_COUNT; ic++) {
+        for (uint8_t ic = 0; ic < active_ics; ic++) {
             for (uint8_t c = 0; c < CELLS_PER_IC; c++) {
                 uint8_t idx = ic * CELLS_PER_IC + c;
                 s_cells.mv[idx]    = raw_mv[ic][c];
@@ -119,13 +132,14 @@ BmsResult bms_measurements_run_cell_cycle(void) {
  * S-outputs must be cleared on success AND every error path. */
 BmsResult bms_measurements_run_temp_cycle(void) {
     const BmsConfig *cfg = bms_config_get();
+    const uint8_t active_ics = bms_config_active_temp_ics();
     BmsResult r;
 
     /* 1. Assert S-outputs for all configured temp sensor channels.
      *    S-outputs are numbered per-IC; use full mask for all 15 channels. */
-    r = ltc6812_temp_chain_set_sensor_bias(BMS_CHAIN_TEMP, TEMP_IC_COUNT, 0x7FFFu);
+    r = ltc6812_temp_chain_set_sensor_bias(BMS_CHAIN_TEMP, active_ics, 0x7FFFu);
     if (r != BMS_OK) {
-        ltc6812_temp_chain_clear_s_outputs(BMS_CHAIN_TEMP, TEMP_IC_COUNT);
+        ltc6812_temp_chain_clear_s_outputs(BMS_CHAIN_TEMP, active_ics);
         s_temps.overall = MEAS_ERROR;
         bms_faults_report_pec_error(BMS_CHAIN_TEMP);
         return r;
@@ -137,16 +151,22 @@ BmsResult bms_measurements_run_temp_cycle(void) {
     /* 3. Run ADCV on TEMP chain and read RDCVA-RDCVE (C-input voltages) */
     uint16_t raw_mv[TEMP_IC_COUNT][CELLS_PER_IC];
     bool pec_ok[TEMP_IC_COUNT];
-    r = ltc6812_read_cells(BMS_CHAIN_TEMP, TEMP_IC_COUNT, raw_mv, pec_ok);
+    r = ltc6812_read_cells(BMS_CHAIN_TEMP, active_ics, raw_mv, pec_ok);
 
     /* 4. ALWAYS clear S-outputs regardless of result */
-    BmsResult clear_r = ltc6812_temp_chain_clear_s_outputs(BMS_CHAIN_TEMP, TEMP_IC_COUNT);
+    BmsResult clear_r = ltc6812_temp_chain_clear_s_outputs(BMS_CHAIN_TEMP, active_ics);
 
     s_temps.timestamp_ms = board_clock_get_ms();
 
+    /* Sensors beyond the active chain never have a reading. */
+    for (uint16_t i = (uint16_t)active_ics * TEMPS_PER_IC; i < TOTAL_TEMP_COUNT; i++) {
+        s_temps.cx10[i]  = TEMP_INVALID_CX10;
+        s_temps.valid[i] = false;
+    }
+
     if (r == BMS_OK) {
         /* 5. Convert each channel voltage to temperature */
-        for (uint8_t ic = 0; ic < TEMP_IC_COUNT; ic++) {
+        for (uint8_t ic = 0; ic < active_ics; ic++) {
             for (uint8_t ch = 0; ch < TEMPS_PER_IC; ch++) {
                 uint8_t idx = ic * TEMPS_PER_IC + ch;
                 if (pec_ok[ic]) {

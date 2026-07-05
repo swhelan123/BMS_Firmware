@@ -51,13 +51,24 @@ class CellsPage(QWidget):
         sum_lay.addStretch()
         layout.addWidget(sum_grp)
 
-        # Cell table: 15 rows × 5 cols
+        # Cell table: 15 rows × one column per populated segment. Column
+        # count follows the target's reported cell_count (60-cell packs show
+        # 4 columns, 75-cell show 5); rebuilt in refresh() when it changes.
         self._table = QTableWidget(15, 5)
-        self._table.setHorizontalHeaderLabels(
-            [f"Cells {i*15}–{i*15+14}" for i in range(5)])
+        self._segments = 0
+        self._set_segments(5)
         self._table.verticalHeader().setVisible(False)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         layout.addWidget(self._table)
+
+    def _set_segments(self, n: int) -> None:
+        n = max(1, min(5, n))
+        if n == self._segments:
+            return
+        self._segments = n
+        self._table.setColumnCount(n)
+        self._table.setHorizontalHeaderLabels(
+            [f"Cells {i*15}–{i*15+14}" for i in range(n)])
 
     def refresh(self, state: AppState) -> None:
         cs = state.cells
@@ -81,7 +92,10 @@ class CellsPage(QWidget):
         self._warn_lbl.setText(
             f"⚠ {invalid_count} invalid cells" if invalid_count else "")
 
-        for idx, v in enumerate(mv[:75]):
+        # Size the grid to the active pack (multiple of 15).
+        self._set_segments((cs.cell_count + 14) // 15 if cs.cell_count else 5)
+
+        for idx, v in enumerate(mv[:cs.cell_count]):
             row = idx % 15
             col = idx // 15
             is_valid = (cs.validity is None or
