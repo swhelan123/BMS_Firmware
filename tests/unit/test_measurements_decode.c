@@ -104,13 +104,14 @@ void test_cell_cycle_ok_clears_pec_counter(void) {
 
 void test_temp_cycle_sets_bias_before_read(void) {
     bms_measurements_run_temp_cycle();
-    /* Bias must be set exactly once */
-    TEST_ASSERT_EQUAL_INT(1, mock_set_bias_calls);
+    /* Two-pass odd/even measurement: bias set once per pass = 2 */
+    TEST_ASSERT_EQUAL_INT(2, mock_set_bias_calls);
 }
 
 void test_temp_cycle_clears_s_outputs_on_success(void) {
     bms_measurements_run_temp_cycle();
-    TEST_ASSERT_EQUAL_INT(1, mock_clear_s_calls);
+    /* One clear per pass = 2 on the two-pass success path */
+    TEST_ASSERT_EQUAL_INT(2, mock_clear_s_calls);
 }
 
 void test_temp_cycle_clears_s_outputs_on_bias_failure(void) {
@@ -123,8 +124,8 @@ void test_temp_cycle_clears_s_outputs_on_bias_failure(void) {
 void test_temp_cycle_clears_s_outputs_on_read_failure(void) {
     mock_set_read_cells_result(BMS_ERR_PEC);
     bms_measurements_run_temp_cycle();
-    /* Must clear even when the ADCV read fails */
-    TEST_ASSERT_EQUAL_INT(1, mock_clear_s_calls);
+    /* Pass A read fails: clear in the pass + clear in the error path = 2 */
+    TEST_ASSERT_EQUAL_INT(2, mock_clear_s_calls);
 }
 
 void test_temp_cycle_out_of_range_voltage_all_invalid(void) {
@@ -256,7 +257,8 @@ void test_second_cell_cycle_overwrites_first(void) {
 void test_temp_cycle_s_outputs_cleared_each_call(void) {
     bms_measurements_run_temp_cycle();
     bms_measurements_run_temp_cycle();
-    TEST_ASSERT_EQUAL_INT(2, mock_clear_s_calls);
+    /* Two clears per cycle (one per pass) × two cycles = 4 */
+    TEST_ASSERT_EQUAL_INT(4, mock_clear_s_calls);
 }
 
 /* ── Main ─────────────────────────────────────────────────────────────────── */

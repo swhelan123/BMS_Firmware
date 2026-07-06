@@ -31,9 +31,14 @@ void board_spi_init(void) {
     CS_TEMP_PORT->MODER |= (GPIO_MODER_OUTPUT << (CS_TEMP_PIN * 2u));
     pin_high(CS_TEMP_PORT, CS_TEMP_PIN);
 
-    /* SPI1: master, mode 3 (CPOL=1 CPHA=1), software NSS, fPCLK/16 ≈ 4.5 MHz */
+    /* SPI1: master, mode 3 (CPOL=1 CPHA=1), software NSS.
+     * fPCLK(APB2)=72 MHz. BR=111 → /256 ≈ 281 kHz. The LTC6820's isoSPI
+     * SPI port is limited to ~500 kHz because this board straps SLOW=1
+     * (all LTC6820 config pins tied high — confirmed from PCB netlist);
+     * 281 kHz is safely inside slow-mode spec. Raise toward /128 (562 kHz)
+     * only after comms are proven and only if cycle timing needs it. */
     SPI1->CR1 = SPI_CR1_CPOL | SPI_CR1_CPHA | SPI_CR1_MSTR |
-                SPI_CR1_SSM | SPI_CR1_SSI | (3u << SPI_CR1_BR_Pos);
+                SPI_CR1_SSM | SPI_CR1_SSI | (7u << SPI_CR1_BR_Pos);
     /* 8-bit DS + FRXTH: RXNE must fire per byte (8-bit FIFO threshold).
      * Without FRXTH the F3 SPI FIFO waits for 16 bits before setting RXNE,
      * and the byte-wise transfer loop below hangs on its first byte. */

@@ -1,10 +1,10 @@
 /* test_openwire.c — ltc6812_run_open_wire unit tests.
  *
- * RX buffer layout for ltc6812_run_open_wire (see ltc6812.c):
- *   [0]        : 1 byte 0xFF for PDN PLADC poll response (ADC done)
- *   [1..200]   : PDN cell data (5 groups × 5 ICs × 8 bytes = 200 bytes)
- *   [201]      : 1 byte 0xFF for PUP PLADC poll response
- *   [202..401] : PUP cell data (200 bytes)
+ * RX buffer layout for ltc6812_run_open_wire (see ltc6812.c). ADC completion
+ * is a fixed time delay (no PLADC poll — see poll_adc_done), so no poll
+ * bytes appear in the RX stream:
+ *   [0..199]   : PDN cell data (5 groups × 5 ICs × 8 bytes = 200 bytes)
+ *   [200..399] : PUP cell data (200 bytes)
  *
  * Safety invariant tested: ltc6812_run_open_wire never touches WRCFGA/WRCFGB.
  */
@@ -18,11 +18,9 @@
 #include <string.h>
 
 /* ── RX buffer layout constants ─────────────────────────────────────────────── */
-#define PDN_POLL_OFFSET    (0u)
-#define PDN_DATA_OFFSET    (1u)
-#define PUP_POLL_OFFSET    (201u)
-#define PUP_DATA_OFFSET    (202u)
-#define OPENWIRE_RX_SIZE   (402u)
+#define PDN_DATA_OFFSET    (0u)
+#define PUP_DATA_OFFSET    (200u)
+#define OPENWIRE_RX_SIZE   (400u)
 #define BYTES_PER_IC_GRP   (8u)    /* 6 data + 2 PEC */
 #define GROUPS_PER_CHAIN   (5u)
 
@@ -66,11 +64,9 @@ static void override_cell(uint8_t *dst, uint8_t ic_idx,
     base[7] = (uint8_t)(pec & 0xFFu);
 }
 
-/* Load RX buffer with uniform PDN/PUP cell data and 0xFF poll bytes */
+/* Load RX buffer with uniform PDN/PUP cell data */
 static void load_rx_uniform(uint16_t pdn_raw, uint16_t pup_raw) {
     memset(s_rx, 0, sizeof(s_rx));
-    s_rx[PDN_POLL_OFFSET] = 0xFFu;
-    s_rx[PUP_POLL_OFFSET] = 0xFFu;
     fill_uniform(s_rx + PDN_DATA_OFFSET, pdn_raw);
     fill_uniform(s_rx + PUP_DATA_OFFSET, pup_raw);
     mock_spi_set_rx(s_rx, sizeof(s_rx));
@@ -170,8 +166,6 @@ void test_openwire_pup_cmd_after_pdn_cmd(void) {
 void test_openwire_detected_cell0(void) {
     /* IC 0 cell 0: PDN = 0 mV, PUP = 5001 mV → delta = 5001 > 400 → open */
     memset(s_rx, 0, sizeof(s_rx));
-    s_rx[PDN_POLL_OFFSET] = 0xFFu;
-    s_rx[PUP_POLL_OFFSET] = 0xFFu;
     fill_uniform(s_rx + PDN_DATA_OFFSET, 0u);
     fill_uniform(s_rx + PUP_DATA_OFFSET, 0u);
     /* 5001 mV → raw = 5001 × 10 = 50010 = 0xC35A */
@@ -191,8 +185,6 @@ void test_openwire_threshold_at_boundary_not_detected(void) {
     /* delta = 400 mV exactly: NOT strictly > 400 → not detected */
     /* PDN = 0, PUP = 400 mV → raw = 4000 */
     memset(s_rx, 0, sizeof(s_rx));
-    s_rx[PDN_POLL_OFFSET] = 0xFFu;
-    s_rx[PUP_POLL_OFFSET] = 0xFFu;
     fill_uniform(s_rx + PDN_DATA_OFFSET, 0u);
     fill_uniform(s_rx + PUP_DATA_OFFSET, 0u);
     override_cell(s_rx + PUP_DATA_OFFSET, 0u, 0u, 4000u);  /* 400 mV */

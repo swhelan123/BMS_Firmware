@@ -45,17 +45,30 @@ static void build_cmd_frame(uint16_t cmd, uint8_t out[4]) {
 }
 
 /* ── Wakeup ───────────────────────────────────────────────────────────────── */
+/* LTC681x isoSPI wake (matches the LTC/ADI wakeup_sleep reference).
+ *
+ * PREVIOUS BUG: this sent one dummy byte (~µs) then immediately deasserted
+ * CS, so CS was low for microseconds — not the ~300 µs the LTC6820/LTC6812
+ * need to leave IDLE. The whole chain stayed asleep and every read returned
+ * NO_RESPONSE. The old 1 ms delay was AFTER CS went high (idle time), which
+ * does nothing to wake the chain.
+ *
+ * Correct sequence, once per IC so the wake ripples the full daisy chain:
+ *   CS low → hold t_WAKE (≥300 µs) → CS high → hold t_READY (≥10 µs).
+ * No SPI data is clocked — the LTC6820 drives the isoSPI wake pulse purely
+ * from CS going low (this matches the LTC/ADI wakeup_sleep reference).
+ * Total ~ISOSPI_MAX_ICS × 310 µs ≈ 1.6 ms per wake — well within the
+ * measurement-cycle budget. */
+#define ISOSPI_T_WAKE_US   (300u)
+#define ISOSPI_T_READY_US  (10u)
+
 void isospi_wakeup(BmsChain chain) {
-    /* Drive CS low for ≥ 300 µs to wake the LTC6820 / LTC6812 chain.
-     * Then idle CS high for ≥ 10 µs before the first real command. */
-    board_spi_cs_assert(chain);
-    /* Send a dummy byte; the 300 µs is met by the CS assert period and the
-     * subsequent delay. At 4.5 Mbit/s one byte ≈ 1.8 µs; we send 2 and
-     * then delay 1 ms to ensure all ICs wake. */
-    uint8_t dummy = 0xFF;
-    board_spi_write(&dummy, 1);
-    board_spi_cs_deassert(chain);
-    board_clock_delay_ms(1); /* OQ-TIM: refine after oscilloscope verification */
+    for (uint8_t i = 0u; i < ISOSPI_MAX_ICS; i++) {
+        board_spi_cs_assert(chain);
+        board_clock_delay_us(ISOSPI_T_WAKE_US);
+        board_spi_cs_deassert(chain);
+        board_clock_delay_us(ISOSPI_T_READY_US);
+    }
 }
 
 /* ── Broadcast command (no data) ─────────────────────────────────────────── */

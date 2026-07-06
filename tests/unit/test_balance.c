@@ -149,24 +149,21 @@ void test_balance_openwire_fault_disables_balance(void) {
 }
 
 /* ── DCC bit placement ────────────────────────────────────────────────────── */
-/* TX layout for ltc6812_cell_chain_set_balance(CELL, 5, dcc):
- *   [0]:     wakeup for RDCFGA read
- *   [1..4]:  RDCFGA cmd frame
- *   [5]:     wakeup for WRCFGA
- *   [6..9]:  WRCFGA cmd frame
- *   [10..17]: IC 0 CFGA data (6 bytes) + PEC (2 bytes)
- *     → CFGA[4] at TX[14], CFGA[5] at TX[15]
- *   [18..49]: IC 1-4 CFGA data
- *   [50]:    wakeup for RDCFGB read
- *   [51..54]: RDCFGB cmd frame
- *   [55]:    wakeup for WRCFGB
- *   [56..59]: WRCFGB cmd frame
- *   [60..67]: IC 0 CFGB data (6 bytes) + PEC
- *     → CFGB[0] at TX[60]
+/* TX layout for ltc6812_cell_chain_set_balance(CELL, 5, dcc). isospi_wakeup()
+ * toggles CS only (no SPI data), so wakeups contribute ZERO bytes to the
+ * captured TX stream, and read-data phases use tx=NULL (also not captured).
+ * Only command frames and write payloads land in the mock TX buffer:
+ *   [0..3]:   RDCFGA cmd frame       (wakeup before it: 0 bytes)
+ *   [4..7]:   WRCFGA cmd frame       (wakeup before it: 0 bytes)
+ *   [8..15]:  IC 0 CFGA data (6) + PEC (2)  → CFGA[4]=TX[12], CFGA[5]=TX[13]
+ *   [16..47]: IC 1-4 CFGA data
+ *   [48..51]: RDCFGB cmd frame
+ *   [52..55]: WRCFGB cmd frame
+ *   [56..63]: IC 0 CFGB data (6) + PEC       → CFGB[0]=TX[56]
  */
-#define TX_IC0_CFGA4  (14u)
-#define TX_IC0_CFGA5  (15u)
-#define TX_IC0_CFGB0  (60u)
+#define TX_IC0_CFGA4  (12u)
+#define TX_IC0_CFGA5  (13u)
+#define TX_IC0_CFGB0  (56u)
 
 static void run_balance_direct(uint16_t ic0_dcc) {
     uint16_t dcc[CELL_IC_COUNT] = {0};

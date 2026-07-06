@@ -54,7 +54,15 @@ void board_clock_init(void) {
     SysTick->VAL  = 0u;
     SysTick->CTRL = SysTick_CTRL_CLKSOURCE | SysTick_CTRL_TICKINT | SysTick_CTRL_ENABLE;
 
-    /* 9. Ensure IRQs are enabled regardless of how we were entered.
+    /* 9. Enable the DWT cycle counter for microsecond-resolution busy-waits
+     * (board_clock_delay_us). SysTick only gives 1 ms; the isoSPI wake pulse
+     * needs ~300 µs, and it runs several times per measurement cycle, so a
+     * ms-granular delay there would blow the loop's timing budget. */
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->CYCCNT = 0u;
+    DWT->CTRL  |= DWT_CTRL_CYCCNTENA_Msk;
+
+    /* 10. Ensure IRQs are enabled regardless of how we were entered.
      * The bootloader jumps here with PRIMASK set unless it re-enables IRQs;
      * without this, SysTick never fires and every delay loop hangs. */
 #ifndef BMS_HOST_BUILD
@@ -69,4 +77,12 @@ uint32_t board_clock_get_ms(void) {
 void board_clock_delay_ms(uint32_t ms) {
     uint32_t start = s_tick_ms;
     while ((s_tick_ms - start) < ms) { /* spin */ }
+}
+
+void board_clock_delay_us(uint32_t us) {
+    /* DWT cycle counter at the 72 MHz core clock → 72 cycles per µs.
+     * Wrap-safe: the unsigned subtraction handles CYCCNT rollover. */
+    uint32_t start  = DWT->CYCCNT;
+    uint32_t cycles = us * 72u;
+    while ((DWT->CYCCNT - start) < cycles) { /* spin */ }
 }

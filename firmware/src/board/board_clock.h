@@ -16,5 +16,9 @@ uint32_t board_clock_get_ms(void);
 /* Busy-wait delay. */
 void board_clock_delay_ms(uint32_t ms);
 
+/* Microsecond busy-wait via the DWT cycle counter (enabled in
+ * board_clock_init). For sub-millisecond timing like the isoSPI wake pulse. */
+void board_clock_delay_us(uint32_t us);
+
 /* SysTick ISR — called by the NVIC vector table. Do not call directly. */
 void SysTick_Handler(void);

@@ -29,7 +29,11 @@
 #define LTC_CMD_RDAUXB      (0x000Eu)  /* Read Auxiliary Register Group B      */
 #define LTC_CMD_RDAUXC      (0x000Du)  /* Read Auxiliary Register Group C      */
 #define LTC_CMD_RDAUXD      (0x000Fu)  /* Read Auxiliary Register Group D      */
-#define LTC_CMD_ADCV        (0x0360u)  /* Start Cell Voltage ADC (all ch, 7kHz)*/
+#define LTC_CMD_ADCV        (0x0360u)  /* Start Cell Voltage ADC (all ch, 7kHz, DCP=0) */
+#define LTC_CMD_ADCV_DCP    (0x0370u)  /* Same, DCP=1 (discharge stays on during
+                                        * conversion) — used for the temp chain so
+                                        * the sensor bias switch is not opened while
+                                        * the sensor voltage is being sampled */
 #define LTC_CMD_ADAX        (0x0560u)  /* Start Aux ADC (all GPIO, 7kHz)       */
 #define LTC_CMD_ADOW_PDN    (0x0228u)  /* Open-Wire check, pull-down (PUP=0)   */
 #define LTC_CMD_ADOW_PUP    (0x0268u)  /* Open-Wire check, pull-up  (PUP=1)    */

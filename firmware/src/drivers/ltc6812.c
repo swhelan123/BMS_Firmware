@@ -5,7 +5,7 @@
  *   - S-output control only on TEMP chain (temp_chain_set_sensor_bias refuses CELL)
  *
  * CFGA/CFGB bit layouts (from LTC6812 datasheet Table 43/44):
- *   CFGA[0]: ADCOPT(6), REFON(5), GPIO5:1(4:0)
+ *   CFGA[0]: GPIO5:1(7:3), REFON(2), DTEN(1, read-only), ADCOPT(0)
  *   CFGA[1]: VUV[7:0]
  *   CFGA[2]: VOV[3:0] | VUV[11:8]
  *   CFGA[3]: VOV[11:4]
@@ -28,22 +28,21 @@
 #define ADC_MIN_WAIT_MS      (2u)   /* minimum before polling to avoid hammering */
 
 static BmsResult poll_adc_done(BmsChain chain) {
-    /* Wait a minimum time before starting to poll */
-    board_clock_delay_ms(ADC_MIN_WAIT_MS);
-
-    uint32_t start = board_clock_get_ms();
-    uint8_t poll_rx[1] = {0};
-
-    while ((board_clock_get_ms() - start) < ADC_POLL_TIMEOUT_MS) {
-        /* Send PLADC broadcast: 4-byte command, then read 1 byte.
-         * SDO = 0xFF when conversion complete, 0x00 when busy. */
-        isospi_cmd_broadcast(chain, LTC_CMD_PLADC);
-        /* Read one byte after the command to sample SDO */
-        isospi_read_byte_after_cmd(chain, poll_rx);
-        if (poll_rx[0] == 0xFFu) { return BMS_OK; }
-        board_clock_delay_ms(1u);
-    }
-    return BMS_ERR_TIMEOUT;
+    /* PREVIOUS BUG: this PLADC-polled with CS deasserted between the command
+     * and the status byte. PLADC status is only meaningful while CS stays low
+     * in the SAME window; a fresh CS window samples the isoSPI idle state
+     * (0xFF) and reports "done" instantly. Result observed on hardware:
+     * register groups read out DURING the conversion — early groups (RDCVA-C)
+     * garbage, late groups (RDCVD/E) valid because the conversion finished
+     * mid-readout.
+     *
+     * Fix: deterministic wait for the known conversion time, like the ADI
+     * reference code. ADCV all-cell at MD=7kHz takes ~2.34 ms; 4 ms covers
+     * it with margin regardless of chain length (conversions run in
+     * parallel on every IC). */
+    (void)chain;
+    board_clock_delay_ms(4u);
+    return BMS_OK;
 }
 
 /* ── Encode/decode cell voltage groups ───────────────────────────────────── */
@@ -61,7 +60,10 @@ BmsResult ltc6812_init_chain(BmsChain chain, uint8_t num_ics) {
     memset(cfga_data, 0, sizeof(cfga_data));
     for (uint8_t ic = 0; ic < num_ics; ic++) {
         uint8_t *g = &cfga_data[ic * LTC6812_REG_GROUP_BYTES];
-        g[0] = 0xF8u; /* GPIO1-5 high (not driven), REFON=0, ADCOPT=0 */
+        g[0] = 0xFCu; /* GPIO1-5 high (not driven), REFON=1, ADCOPT=0.
+                       * REFON must be set: with the reference powered down the
+                       * ADC returns scattered garbage codes (observed on
+                       * hardware: 0..5857mV on a uniform 3.48V segment). */
         g[1] = 0x00u; /* VUV = 0 (no UV hardware threshold) */
         g[2] = 0x00u;
         g[3] = 0x00u; /* VOV = 0 (no OV hardware threshold — SW evaluates) */
@@ -71,10 +73,41 @@ BmsResult ltc6812_init_chain(BmsChain chain, uint8_t num_ics) {
     BmsResult r = isospi_write_all(chain, LTC_CMD_WRCFGA, cfga_data, num_ics);
     if (r != BMS_OK) { return r; }
 
+    /* Reference power-up time after enabling REFON (t_REFUP ≤ 4.4 ms) —
+     * conversions started before this settle read garbage. */
+    board_clock_delay_ms(5u);
+
     /* Clear CFGB (DCC15:13 = 0, sensor bias cleared) */
     uint8_t cfgb_data[ISOSPI_MAX_ICS * LTC6812_REG_GROUP_BYTES];
     memset(cfgb_data, 0, sizeof(cfgb_data));
     return isospi_write_all(chain, LTC_CMD_WRCFGB, cfgb_data, num_ics);
+}
+
+/* Ensure REFON is set on every IC before a conversion. The LTC6812's
+ * watchdog drops it back to defaults (REFON=0) after ~2 s without comms —
+ * the main loop never hits that, but spaced-out bench one-shots do. Reads
+ * CFGA and only rewrites (+ t_REFUP wait) when someone actually lost it,
+ * so the steady-state cost is one extra register read per cycle. */
+static BmsResult ensure_refon(BmsChain chain, uint8_t num_ics) {
+    uint8_t cfga[ISOSPI_MAX_ICS * LTC6812_REG_GROUP_BYTES];
+    bool pec_ok[ISOSPI_MAX_ICS];
+    BmsResult r = isospi_read_all(chain, LTC_CMD_RDCFGA, cfga, num_ics, pec_ok);
+    if (r != BMS_OK) { return r; }
+
+    bool rewrite = false;
+    for (uint8_t ic = 0; ic < num_ics; ic++) {
+        uint8_t *g = &cfga[ic * LTC6812_REG_GROUP_BYTES];
+        if ((g[0] & 0x04u) == 0u) {  /* REFON (CFGR0 bit 2) lost */
+            g[0] |= 0x04u;
+            rewrite = true;
+        }
+    }
+    if (!rewrite) { return BMS_OK; }
+
+    r = isospi_write_all(chain, LTC_CMD_WRCFGA, cfga, num_ics);
+    if (r != BMS_OK) { return r; }
+    board_clock_delay_ms(5u); /* t_REFUP */
+    return BMS_OK;
 }
 
 /* ── Read cells (CELL or TEMP chain, ADCV + RDCVA–RDCVE) ────────────────── */
@@ -83,7 +116,14 @@ BmsResult ltc6812_read_cells(BmsChain chain, uint8_t num_ics,
                               bool pec_ok[CELL_IC_COUNT]) {
     isospi_wakeup(chain);
 
-    BmsResult r = isospi_cmd_broadcast(chain, LTC_CMD_ADCV);
+    BmsResult r = ensure_refon(chain, num_ics);
+    if (r != BMS_OK) { return r; }
+
+    /* TEMP chain: keep discharge (sensor bias) on during the conversion
+     * (DCP=1). CELL chain: pause discharge during measurement (DCP=0) so a
+     * balancing cell reads its true, unloaded voltage. */
+    uint16_t adcv = (chain == BMS_CHAIN_TEMP) ? LTC_CMD_ADCV_DCP : LTC_CMD_ADCV;
+    r = isospi_cmd_broadcast(chain, adcv);
     if (r != BMS_OK) { return r; }
 
     r = poll_adc_done(chain);
@@ -119,26 +159,56 @@ BmsResult ltc6812_temp_chain_set_sensor_bias(BmsChain chain, uint8_t num_ics,
                                               uint16_t s_mask_per_ic) {
     if (chain != BMS_CHAIN_TEMP) { return BMS_ERR_FORBIDDEN; }
 
-    /* S-outputs are controlled via CFGB bytes.
-     * CFGB[0] bits [2:0] = S3:S1 (for LTC6812, S-outputs numbered from device gpio)
-     * OQ-TMP: verify exact CFGB Sx bit mapping from LTC6812 datasheet Table 44. */
-    uint8_t cfgb_data[ISOSPI_MAX_ICS * LTC6812_REG_GROUP_BYTES];
-    memset(cfgb_data, 0, sizeof(cfgb_data));
+    /* The Enepaq temp sensors are biased by turning ON the discharge switch
+     * S1..S15 for each channel. On the LTC6812 those switches are the cell
+     * discharge outputs, controlled by DCC1..DCC15 — NOT a separate S-output
+     * register. Same bit layout the balance path uses:
+     *   CFGA[4]      = DCC8:1
+     *   CFGA[5][3:0] = DCC12:9   (upper nibble is DCTO, keep 0)
+     *   CFGB[0][2:0] = DCC15:13
+     * REFON stays set in CFGA[0] so the ADC reference is powered for the
+     * temp read that follows. (The previous code wrote the mask into
+     * CFGB[0]/[1], which are not the DCC bits, so the sensors were never
+     * biased and every channel read the raw cell-tap voltage — out of the
+     * sensor window, all INVALID.) */
+    uint16_t dcc = s_mask_per_ic & 0x7FFFu;
+
+    uint8_t cfga[ISOSPI_MAX_ICS * LTC6812_REG_GROUP_BYTES];
+    memset(cfga, 0, sizeof(cfga));
     for (uint8_t ic = 0; ic < num_ics; ic++) {
-        uint8_t *g = &cfgb_data[ic * LTC6812_REG_GROUP_BYTES];
-        /* Lower byte: S8:S1 outputs (bits 7:0) */
-        g[0] = (uint8_t)(s_mask_per_ic & 0xFFu);
-        /* Upper nybble of byte 1: S15:S9 in bits [6:0] of byte 1 */
-        g[1] = (uint8_t)((s_mask_per_ic >> 8u) & 0x7Fu);
+        uint8_t *g = &cfga[ic * LTC6812_REG_GROUP_BYTES];
+        g[0] = 0xFCu;                              /* GPIO1-5 high, REFON=1 */
+        g[4] = (uint8_t)(dcc & 0xFFu);             /* DCC8:1 */
+        g[5] = (uint8_t)((dcc >> 8u) & 0x0Fu);     /* DCC12:9, DCTO=0 */
     }
-    return isospi_write_all(chain, LTC_CMD_WRCFGB, cfgb_data, num_ics);
+    BmsResult r = isospi_write_all(chain, LTC_CMD_WRCFGA, cfga, num_ics);
+    if (r != BMS_OK) { return r; }
+
+    uint8_t cfgb[ISOSPI_MAX_ICS * LTC6812_REG_GROUP_BYTES];
+    memset(cfgb, 0, sizeof(cfgb));
+    for (uint8_t ic = 0; ic < num_ics; ic++) {
+        cfgb[ic * LTC6812_REG_GROUP_BYTES] = (uint8_t)((dcc >> 12u) & 0x07u); /* DCC15:13 */
+    }
+    return isospi_write_all(chain, LTC_CMD_WRCFGB, cfgb, num_ics);
 }
 
 BmsResult ltc6812_temp_chain_clear_s_outputs(BmsChain chain, uint8_t num_ics) {
     if (chain != BMS_CHAIN_TEMP) { return BMS_ERR_FORBIDDEN; }
-    uint8_t cfgb_data[ISOSPI_MAX_ICS * LTC6812_REG_GROUP_BYTES];
-    memset(cfgb_data, 0, sizeof(cfgb_data));
-    return isospi_write_all(chain, LTC_CMD_WRCFGB, cfgb_data, num_ics);
+
+    /* Bias switches are DCC1..DCC15, which live in CFGA[4]/[5] and CFGB[0].
+     * Clear BOTH register groups — clearing only CFGB would leave DCC12:1 in
+     * CFGA latched on, holding the sensor bias current. Keep REFON set. */
+    uint8_t cfga[ISOSPI_MAX_ICS * LTC6812_REG_GROUP_BYTES];
+    memset(cfga, 0, sizeof(cfga));
+    for (uint8_t ic = 0; ic < num_ics; ic++) {
+        cfga[ic * LTC6812_REG_GROUP_BYTES] = 0xFCu; /* GPIO1-5 high, REFON=1, DCC cleared */
+    }
+    BmsResult r = isospi_write_all(chain, LTC_CMD_WRCFGA, cfga, num_ics);
+    if (r != BMS_OK) { return r; }
+
+    uint8_t cfgb[ISOSPI_MAX_ICS * LTC6812_REG_GROUP_BYTES];
+    memset(cfgb, 0, sizeof(cfgb));
+    return isospi_write_all(chain, LTC_CMD_WRCFGB, cfgb, num_ics);
 }
 
 /* ── CELL chain balance control ────────────────────────────────────────────── */

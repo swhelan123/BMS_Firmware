@@ -70,6 +70,7 @@ static const VTPoint k_enepaq_vt[] = {
 
 /* Convert a measured voltage (in mV, 100µV LSB from LTC6812 raw/10) to °C×10.
  * Returns TEMP_INVALID_CX10 if voltage is outside table range [1300, 2440] mV. */
+__attribute__((unused))
 static int16_t enepaq_voltage_to_cx10(uint16_t mv) {
     if (mv > k_enepaq_vt[0].mv || mv < k_enepaq_vt[ENEPAQ_VT_COUNT - 1u].mv) {
         return TEMP_INVALID_CX10;
@@ -127,34 +128,59 @@ BmsResult bms_measurements_run_cell_cycle(void) {
 }
 
 /* ── Temperature cycle ────────────────────────────────────────────────────── */
-/* Temperature sensors are on C-inputs of the TEMP chain. Measurement uses
- * ADCV + RDCVA-RDCVE (same as cell measurement), not ADAX + RDAUX.
- * S-outputs must be cleared on success AND every error path. */
-BmsResult bms_measurements_run_temp_cycle(void) {
-    const BmsConfig *cfg = bms_config_get();
-    const uint8_t active_ics = bms_config_active_temp_ics();
-    BmsResult r;
+/* Temperature sensors sit on the C-inputs of the TEMP chain and are biased by
+ * the per-channel discharge switch (DCC → S-pin → sensor bias FET). The
+ * LTC6812 cannot measure a channel accurately while an ADJACENT channel's
+ * discharge switch is also on (shared node), so a single all-15-on pass reads
+ * mostly cell-tap voltage. Per the Enepaq/LTC guidance, measure in two passes
+ * with alternating masks and keep only the channels whose own switch was on:
+ *   pass A: bias odd  channels (DCC1,3,5,…  = 0x5555) → keep idx 0,2,4,…
+ *   pass B: bias even channels (DCC2,4,6,…  = 0x2AAA) → keep idx 1,3,5,…
+ * ADCV uses DCP=1 (see ltc6812_read_cells) so the bias stays on through the
+ * conversion. S-outputs are cleared after each pass and on every error path. */
 
-    /* 1. Assert S-outputs for all configured temp sensor channels.
-     *    S-outputs are numbered per-IC; use full mask for all 15 channels. */
-    r = ltc6812_temp_chain_set_sensor_bias(BMS_CHAIN_TEMP, active_ics, 0x7FFFu);
-    if (r != BMS_OK) {
-        ltc6812_temp_chain_clear_s_outputs(BMS_CHAIN_TEMP, active_ics);
-        s_temps.overall = MEAS_ERROR;
-        bms_faults_report_pec_error(BMS_CHAIN_TEMP);
-        return r;
+/* Store one channel's converted result into the snapshot. */
+static void temp_store_channel(uint8_t idx, uint16_t raw_mv_val, bool pec) {
+    if (!pec) {
+        s_temps.cx10[idx]  = TEMP_INVALID_CX10;
+        s_temps.valid[idx] = false;
+        return;
     }
+    int16_t cx10 = enepaq_voltage_to_cx10(raw_mv_val);
+    s_temps.cx10[idx]  = cx10;
+    s_temps.valid[idx] = (cx10 != TEMP_INVALID_CX10);
+}
 
-    /* 2. Wait for sensor voltage to settle */
-    board_clock_delay_ms(cfg->temp_settle_time_ms);
+/* One bias+read pass. keep_even=false keeps odd-index channels (0,2,4,…),
+ * keep_even=true keeps even-index channels (1,3,5,…). */
+static BmsResult temp_measure_pass(uint8_t active_ics, uint16_t settle_ms,
+                                   uint16_t bias_mask, bool keep_even) {
+    BmsResult r = ltc6812_temp_chain_set_sensor_bias(BMS_CHAIN_TEMP, active_ics, bias_mask);
+    if (r != BMS_OK) { return r; }
 
-    /* 3. Run ADCV on TEMP chain and read RDCVA-RDCVE (C-input voltages) */
+    board_clock_delay_ms(settle_ms);
+
     uint16_t raw_mv[TEMP_IC_COUNT][CELLS_PER_IC];
     bool pec_ok[TEMP_IC_COUNT];
     r = ltc6812_read_cells(BMS_CHAIN_TEMP, active_ics, raw_mv, pec_ok);
 
-    /* 4. ALWAYS clear S-outputs regardless of result */
     BmsResult clear_r = ltc6812_temp_chain_clear_s_outputs(BMS_CHAIN_TEMP, active_ics);
+    if (r != BMS_OK)       { return r; }
+    if (clear_r != BMS_OK) { return clear_r; }
+
+    for (uint8_t ic = 0; ic < active_ics; ic++) {
+        for (uint8_t ch = 0; ch < TEMPS_PER_IC; ch++) {
+            if (((ch & 1u) != 0u) != keep_even) { continue; } /* this pass's channels */
+            uint8_t idx = ic * TEMPS_PER_IC + ch;
+            temp_store_channel(idx, raw_mv[ic][ch], pec_ok[ic]);
+        }
+    }
+    return BMS_OK;
+}
+
+BmsResult bms_measurements_run_temp_cycle(void) {
+    const BmsConfig *cfg = bms_config_get();
+    const uint8_t active_ics = bms_config_active_temp_ics();
 
     s_temps.timestamp_ms = board_clock_get_ms();
 
@@ -164,34 +190,27 @@ BmsResult bms_measurements_run_temp_cycle(void) {
         s_temps.valid[i] = false;
     }
 
+    /* Pass A: odd channels (DCC1,3,5,… = 0x5555). */
+    BmsResult r = temp_measure_pass(active_ics, cfg->temp_settle_time_ms, 0x5555u, false);
     if (r == BMS_OK) {
-        /* 5. Convert each channel voltage to temperature */
-        for (uint8_t ic = 0; ic < active_ics; ic++) {
-            for (uint8_t ch = 0; ch < TEMPS_PER_IC; ch++) {
-                uint8_t idx = ic * TEMPS_PER_IC + ch;
-                if (pec_ok[ic]) {
-                    int16_t cx10 = enepaq_voltage_to_cx10(raw_mv[ic][ch]);
-                    s_temps.cx10[idx]  = cx10;
-                    s_temps.valid[idx] = (cx10 != TEMP_INVALID_CX10);
-                } else {
-                    s_temps.cx10[idx]  = TEMP_INVALID_CX10;
-                    s_temps.valid[idx] = false;
-                }
-            }
-        }
-        /* Overall validity: valid only if all required sensors converted */
-        s_temps.overall = MEAS_VALID; /* caller (bms_faults) checks coverage */
-        bms_faults_clear_pec_counter(BMS_CHAIN_TEMP);
-    } else {
+        /* Pass B: even channels (DCC2,4,6,… = 0x2AAA). */
+        r = temp_measure_pass(active_ics, cfg->temp_settle_time_ms, 0x2AAAu, true);
+    }
+
+    if (r != BMS_OK) {
+        ltc6812_temp_chain_clear_s_outputs(BMS_CHAIN_TEMP, active_ics);
         s_temps.overall = MEAS_ERROR;
         for (uint8_t i = 0; i < TOTAL_TEMP_COUNT; i++) {
             s_temps.cx10[i]  = TEMP_INVALID_CX10;
             s_temps.valid[i] = false;
         }
         if (r == BMS_ERR_PEC) { bms_faults_report_pec_error(BMS_CHAIN_TEMP); }
+        return r;
     }
 
-    return (r != BMS_OK) ? r : clear_r;
+    s_temps.overall = MEAS_VALID; /* caller (bms_faults) checks coverage */
+    bms_faults_clear_pec_counter(BMS_CHAIN_TEMP);
+    return BMS_OK;
 }
 
 /* ── Pack cycle (Vbat+I via ISL28022, Vpack via ADC1/PA1) ────────────────── *
