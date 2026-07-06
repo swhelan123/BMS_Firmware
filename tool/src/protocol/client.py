@@ -9,6 +9,7 @@ from typing import Optional
 from .framing import encode_frame, FrameDecoder, FrameError
 from .packet_defs import (
     PKT_GET_CAPABILITIES, PKT_GET_VALUES, PKT_GET_CELLS, PKT_GET_TEMPS,
+    PKT_GET_TEMPS_RAW,
     PKT_GET_FAULTS, PKT_CLEAR_LATCHED_FAULTS, PKT_GET_CHARGER_STATUS,
     PKT_GET_CONFIG, PKT_VALIDATE_CONFIG, PKT_SET_CONFIG_RAM, PKT_STORE_CONFIG,
     PKT_GET_BOOT_INFO, PKT_ENTER_BOOTLOADER,
@@ -135,6 +136,12 @@ class BmsProtocolClient:
         count = struct.unpack_from('<H', p, 0)[0]
         temps = [struct.unpack_from('<h', p, 2 + i*2)[0] for i in range(count)]
         return {'temp_count': count, 'temps_cx10': temps}
+
+    def get_temps_raw(self) -> dict:
+        p = self.send_request(PKT_GET_TEMPS_RAW)
+        count = struct.unpack_from('<H', p, 0)[0]
+        raw = [struct.unpack_from('<H', p, 2 + i*2)[0] for i in range(count)]
+        return {'temp_count': count, 'raw_mv': raw}
 
     def get_faults(self) -> dict:
         p = self.send_request(PKT_GET_FAULTS)

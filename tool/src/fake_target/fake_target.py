@@ -27,6 +27,7 @@ from typing import Optional
 from ..protocol.framing import encode_frame, FrameDecoder
 from ..protocol.packet_defs import (
     PKT_GET_CAPABILITIES, PKT_GET_VALUES, PKT_GET_CELLS, PKT_GET_TEMPS,
+    PKT_GET_TEMPS_RAW,
     PKT_GET_FAULTS, PKT_CLEAR_LATCHED_FAULTS, PKT_GET_CHARGER_STATUS,
     PKT_GET_CONFIG, PKT_VALIDATE_CONFIG, PKT_SET_CONFIG_RAM, PKT_STORE_CONFIG,
     PKT_GET_DIAGNOSTICS_SUMMARY, PKT_RUN_OPENWIRE,
@@ -201,6 +202,7 @@ class FakeTarget:
             PKT_GET_VALUES:             lambda: self._h_values(seq),
             PKT_GET_CELLS:              lambda: self._h_cells(seq, payload),
             PKT_GET_TEMPS:              lambda: self._h_temps(seq),
+            PKT_GET_TEMPS_RAW:          lambda: self._h_temps_raw(seq),
             PKT_GET_FAULTS:             lambda: self._h_faults(seq),
             PKT_CLEAR_LATCHED_FAULTS:   lambda: self._h_clear_latched(seq, payload),
             PKT_GET_CHARGER_STATUS:     lambda: self._h_charger_status(seq),
@@ -293,6 +295,16 @@ class FakeTarget:
         for i, t in enumerate(self._temps_cx10):
             struct.pack_into('<h', resp, 2 + i*2, t & 0xFFFF)
         return self._respond(PKT_GET_TEMPS, bytes(resp), seq)
+
+    def _h_temps_raw(self, seq: int) -> bytes:
+        # Simulated raw C-input voltages: reverse the Enepaq conversion enough
+        # to give a plausible in-window mV for valid channels, 0 for invalid.
+        resp = bytearray(2 + TOTAL_TEMP_COUNT * 2)
+        struct.pack_into('<H', resp, 0, TOTAL_TEMP_COUNT)
+        for i, t in enumerate(self._temps_cx10):
+            mv = 0 if (t & 0xFFFF) == 0x8000 else 1800
+            struct.pack_into('<H', resp, 2 + i*2, mv)
+        return self._respond(PKT_GET_TEMPS_RAW, bytes(resp), seq)
 
     def _h_faults(self, seq: int) -> bytes:
         resp = struct.pack('<QQ', self._active_faults, self._latched_faults)

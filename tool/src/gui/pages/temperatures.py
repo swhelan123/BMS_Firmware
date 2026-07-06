@@ -1,7 +1,7 @@
 """temperatures.py — 75-temperature table with high/avg/low summary."""
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QTableWidget, QTableWidgetItem, QGroupBox, QPushButton,
+    QTableWidget, QTableWidgetItem, QGroupBox, QPushButton, QCheckBox,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor
@@ -29,12 +29,20 @@ class TemperaturesPage(QWidget):
         act_lay = QHBoxLayout(act_grp)
         self._meas_btn    = QPushButton("Measure Temps Once")
         self._refresh_btn = QPushButton("Refresh Snapshot")
+        self._raw_chk     = QCheckBox("Show raw mV")
+        self._raw_chk.setToolTip(
+            "Show the raw C-input voltage (mV) each channel measured, "
+            "alongside the converted temperature — diagnostic for temp "
+            "sensor acquisition.")
         self._meas_btn.clicked.connect(   self.measure_once_requested)
         self._refresh_btn.clicked.connect(self.refresh_requested)
+        self._raw_chk.toggled.connect(self._on_raw_toggled)
         act_lay.addWidget(self._meas_btn)
         act_lay.addWidget(self._refresh_btn)
+        act_lay.addWidget(self._raw_chk)
         act_lay.addStretch()
         layout.addWidget(act_grp)
+        self._last_state = None
 
         # Summary row
         sum_grp = QGroupBox("Summary")
@@ -68,7 +76,12 @@ class TemperaturesPage(QWidget):
         self._table.setHorizontalHeaderLabels(
             [f"Temps {i*15}–{i*15+14}" for i in range(n)])
 
+    def _on_raw_toggled(self, _checked: bool) -> None:
+        if self._last_state is not None:
+            self.refresh(self._last_state)
+
     def refresh(self, state: AppState) -> None:
+        self._last_state = state
         ts = state.temps
         if not ts.valid or not ts.temps_cx10:
             return
@@ -87,15 +100,19 @@ class TemperaturesPage(QWidget):
 
         self._set_segments((ts.temp_count + 14) // 15 if ts.temp_count else 5)
 
+        show_raw = self._raw_chk.isChecked()
         for idx, t in enumerate(ts.temps_cx10[:ts.temp_count]):
             row = idx % 15
             col = idx // 15
+            raw_suffix = ""
+            if show_raw and idx < len(ts.raw_mv):
+                raw_suffix = f"  ({ts.raw_mv[idx]}mV)"
             if t == TEMP_INVALID:
-                item = QTableWidgetItem(f"[{idx:02d}] INVALID")
+                item = QTableWidgetItem(f"[{idx:02d}] INVALID{raw_suffix}")
                 item.setBackground(_INVALID_COLOR)
                 item.setForeground(_INVALID_TEXT)
             else:
-                item = QTableWidgetItem(f"[{idx:02d}] {t/10:.1f}°C")
+                item = QTableWidgetItem(f"[{idx:02d}] {t/10:.1f}°C{raw_suffix}")
             item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self._table.setItem(row, col, item)
 

@@ -50,6 +50,18 @@ packets:
     idempotent: true
     notes: All 75 temperature readings in °C×10 (int16_t). 0x8000 = INVALID.
 
+  - name: GET_TEMPS_RAW
+    id: 0x0107
+    direction: host_to_device
+    minimum_protocol_version: 1
+    request_type: empty
+    response_type: GetTempsRawResponse
+    idempotent: true
+    notes: >
+      Raw temp-sensor C-input voltages in mV (uint16 each) — the value fed to
+      the Enepaq conversion table before range-checking. Diagnostic aid for
+      the temp-sensor acquisition topology; 0 = channel had a PEC error.
+
   - name: GET_FAULTS
     id: 0x0104
     direction: host_to_device
@@ -268,6 +280,12 @@ response_types:
       - {name: termination_requested,  offset: 6, size: 1, type: uint8,  notes: "0/1 — BMS has decided to end the charge"}
       - {name: status_age_ms,          offset: 7, size: 4, type: uint32, units: ms, notes: "time since last status frame; large/stale if comms lost"}
     total_bytes: 11
+
+  GetTempsRawResponse:
+    fields:
+      - {name: temp_count, offset: 0, size: 2,   type: uint16}
+      - {name: raw_mv,     offset: 2, size: 150, type: uint16[75], units: mV, notes: "raw C-input voltage per channel; 0 = PEC error"}
+    total_bytes: 152
 
   GetCellsRequest:
     fields:

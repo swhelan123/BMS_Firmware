@@ -247,7 +247,8 @@ def cmd_temps(args) -> int:
     try:
         ts = model.poll_temps()
         if args.json:
-            _out({'temp_count': ts.temp_count, 'temps_cx10': ts.temps_cx10}, True)
+            _out({'temp_count': ts.temp_count, 'temps_cx10': ts.temps_cx10,
+                  'raw_mv': ts.raw_mv}, True)
         else:
             valid = [t for t in ts.temps_cx10 if t != -0x8000]
             inv   = ts.temp_count - len(valid)
@@ -258,9 +259,12 @@ def cmd_temps(args) -> int:
                 print(f"  min: {min(valid)/10:.1f}°C")
             if inv:
                 print(f"  invalid: {inv}")
-            if args.verbose:
+            if args.verbose or getattr(args, 'raw', False):
                 for i, t in enumerate(ts.temps_cx10):
-                    print(f"  temp[{i:02d}]: {'INVALID' if t == -0x8000 else f'{t/10:.1f}°C'}")
+                    temp_s = 'INVALID' if t == -0x8000 else f'{t/10:.1f}°C'
+                    raw_s = f"  raw={ts.raw_mv[i]}mV" if (getattr(args, 'raw', False)
+                                                          and i < len(ts.raw_mv)) else ''
+                    print(f"  temp[{i:02d}]: {temp_s}{raw_s}")
         return 0
     except (ProtocolError, TargetRefusedError) as e:
         print(f"error: {e}", file=sys.stderr)
@@ -960,6 +964,9 @@ def build_parser() -> argparse.ArgumentParser:
         p = sub.add_parser(name, help=f'Read {name}')
         _add_connect_args(p)
         p.add_argument('-v', '--verbose', action='store_true')
+        if name == 'temps':
+            p.add_argument('--raw', action='store_true',
+                           help='Also show raw C-input voltage (mV) per channel')
 
     # ── config ───────────────────────────────────────────────────────────────
     cfg     = sub.add_parser('config', help='Configuration operations')

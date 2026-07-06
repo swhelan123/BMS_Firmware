@@ -58,7 +58,10 @@ typedef struct {
 #define TEMP_INVALID_CX10  ((int16_t)0x8000)
 
 typedef struct {
-    int16_t      cx10[TOTAL_TEMP_COUNT]; /* °C × 10 or TEMP_INVALID_CX10 */
+    int16_t      cx10[TOTAL_TEMP_COUNT];    /* °C × 10 or TEMP_INVALID_CX10 */
+    uint16_t     raw_mv[TOTAL_TEMP_COUNT];  /* raw C-input voltage (mV) — the
+                                             * value fed to the Enepaq table;
+                                             * exposed for temp-topology debug */
     bool         valid[TOTAL_TEMP_COUNT];
     uint32_t     timestamp_ms;
     MeasValidity overall;

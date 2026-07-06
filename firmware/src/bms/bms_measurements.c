@@ -141,6 +141,7 @@ BmsResult bms_measurements_run_cell_cycle(void) {
 
 /* Store one channel's converted result into the snapshot. */
 static void temp_store_channel(uint8_t idx, uint16_t raw_mv_val, bool pec) {
+    s_temps.raw_mv[idx] = pec ? raw_mv_val : 0u;
     if (!pec) {
         s_temps.cx10[idx]  = TEMP_INVALID_CX10;
         s_temps.valid[idx] = false;
@@ -186,8 +187,9 @@ BmsResult bms_measurements_run_temp_cycle(void) {
 
     /* Sensors beyond the active chain never have a reading. */
     for (uint16_t i = (uint16_t)active_ics * TEMPS_PER_IC; i < TOTAL_TEMP_COUNT; i++) {
-        s_temps.cx10[i]  = TEMP_INVALID_CX10;
-        s_temps.valid[i] = false;
+        s_temps.cx10[i]   = TEMP_INVALID_CX10;
+        s_temps.raw_mv[i] = 0u;
+        s_temps.valid[i]  = false;
     }
 
     /* Pass A: odd channels (DCC1,3,5,… = 0x5555). */
@@ -201,8 +203,9 @@ BmsResult bms_measurements_run_temp_cycle(void) {
         ltc6812_temp_chain_clear_s_outputs(BMS_CHAIN_TEMP, active_ics);
         s_temps.overall = MEAS_ERROR;
         for (uint8_t i = 0; i < TOTAL_TEMP_COUNT; i++) {
-            s_temps.cx10[i]  = TEMP_INVALID_CX10;
-            s_temps.valid[i] = false;
+            s_temps.cx10[i]   = TEMP_INVALID_CX10;
+            s_temps.raw_mv[i] = 0u;
+            s_temps.valid[i]  = false;
         }
         if (r == BMS_ERR_PEC) { bms_faults_report_pec_error(BMS_CHAIN_TEMP); }
         return r;

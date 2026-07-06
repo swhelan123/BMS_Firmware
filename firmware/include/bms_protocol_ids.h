@@ -13,6 +13,7 @@
 #define PKT_GET_FAULTS              ((uint16_t)0x0104u)
 #define PKT_CLEAR_LATCHED_FAULTS    ((uint16_t)0x0105u)
 #define PKT_GET_CHARGER_STATUS      ((uint16_t)0x0106u)
+#define PKT_GET_TEMPS_RAW           ((uint16_t)0x0107u)
 #define PKT_GET_CONFIG              ((uint16_t)0x0201u)
 #define PKT_VALIDATE_CONFIG         ((uint16_t)0x0202u)
 #define PKT_SET_CONFIG_RAM          ((uint16_t)0x0203u)

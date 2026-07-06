@@ -137,9 +137,11 @@ class TargetModel:
     def poll_temps(self) -> TempsState:
         self._require_app_mode()
         r = self._client.get_temps()
+        raw = self._client.get_temps_raw()
         return TempsState(
             temp_count = r['temp_count'],
             temps_cx10 = r['temps_cx10'],
+            raw_mv     = raw['raw_mv'],
             valid      = True,
         )
 

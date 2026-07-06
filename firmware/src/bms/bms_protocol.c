@@ -180,6 +180,20 @@ static void handle_get_temps(uint8_t seq) {
     send_response(PKT_GET_TEMPS, seq, resp, sizeof(resp), false);
 }
 
+static void handle_get_temps_raw(uint8_t seq) {
+    const TempSnapshot *temps = bms_measurements_get_temps();
+    uint8_t resp[PKT_GET_TEMPS_RESP_SIZE]; /* same wire size as GET_TEMPS */
+    memset(resp, 0, sizeof(resp));
+    resp[0] = bms_config_get()->temp_count & 0xFFu;
+    resp[1] = 0u;
+    for (uint8_t i = 0; i < TOTAL_TEMP_COUNT; i++) {
+        uint16_t mv = temps->raw_mv[i];
+        resp[2 + i*2]   = (uint8_t)(mv & 0xFFu);
+        resp[2 + i*2+1] = (uint8_t)(mv >> 8u);
+    }
+    send_response(PKT_GET_TEMPS_RAW, seq, resp, sizeof(resp), false);
+}
+
 static void handle_get_faults(uint8_t seq) {
     uint8_t resp[16];
     uint64_t af = bms_faults_get_active();
@@ -567,6 +581,7 @@ static void dispatch_packet(uint16_t pkt_id, uint8_t seq,
         case PKT_GET_VALUES:         handle_get_values(seq); break;
         case PKT_GET_CELLS:          handle_get_cells(seq, payload, payload_len); break;
         case PKT_GET_TEMPS:          handle_get_temps(seq); break;
+        case PKT_GET_TEMPS_RAW:      handle_get_temps_raw(seq); break;
         case PKT_GET_FAULTS:              handle_get_faults(seq); break;
         case PKT_CLEAR_LATCHED_FAULTS:    handle_clear_latched_faults(seq, payload, payload_len); break;
         case PKT_GET_CHARGER_STATUS:      handle_get_charger_status(seq); break;

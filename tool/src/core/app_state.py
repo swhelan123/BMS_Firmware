@@ -34,6 +34,7 @@ class CellsState:
 class TempsState:
     temp_count: int       = 0
     temps_cx10: List[int] = field(default_factory=list)
+    raw_mv:     List[int] = field(default_factory=list)  # raw C-input mV per channel
     valid:      bool      = False
 
 
