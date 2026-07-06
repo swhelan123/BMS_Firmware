@@ -61,7 +61,13 @@
 
 /* ── Config schema ────────────────────────────────────────────────────────── */
 #define CONFIG_MAGIC                (0xBBCC0001u)
-#define CONFIG_SCHEMA_VERSION       ((uint16_t)1u)
+/* v2: repurposed 10 of the 42 reserved bytes for charger CAN setpoints
+ * (charge_voltage_setpoint_dv..charge_taper_hold_ms). Struct size unchanged
+ * (226 bytes); a v1 config has zeros there, which the new validation rules
+ * correctly reject (voltage/current setpoints must be > 0) — so any stored
+ * v1 config safely falls back to defaults + FAULT_CONFIG_INVALID rather
+ * than being silently misinterpreted. Must be re-stored after upgrading. */
+#define CONFIG_SCHEMA_VERSION       ((uint16_t)2u)
 #define CONFIG_SCHEMA_SIZE          ((uint16_t)226u)
 #define CONFIG_INVALID_GENERATION   (0xFFFFFFFFu)
 
