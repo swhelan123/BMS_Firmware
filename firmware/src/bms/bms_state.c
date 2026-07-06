@@ -5,7 +5,8 @@
  *   STANDBY   → DISCHARGE: discharge requested, no discharge-blocking faults
  *   STANDBY   → CHARGE   : charger present, no charge-blocking faults
  *   DISCHARGE → STANDBY  : discharge released or discharge-blocking fault
- *   CHARGE    → STANDBY  : charger disconnected or charge-blocking fault
+ *   CHARGE    → STANDBY  : charger disconnected, charge-blocking fault, or
+ *                          bms_charger termination (voltage/taper complete)
  *   any       → FAULT    : fatal fault active
  *   FAULT     → STANDBY  : all faults (active and latched) clear
  *
@@ -18,6 +19,7 @@
 #include "bms_state.h"
 #include "bms_faults.h"
 #include "bms_outputs.h"
+#include "bms_charger.h"
 #include "bms_hal.h"
 #include "bms_constants.h"
 #include <string.h>
@@ -91,7 +93,8 @@ void bms_state_tick(const CellSnapshot    *cells,
 
         case BMS_STATE_CHARGE:
             if (!s_charger_present ||
-                (active_faults & FAULT_BLOCKS_CHARGE_MASK)) {
+                (active_faults & FAULT_BLOCKS_CHARGE_MASK) ||
+                bms_charger_termination_requested()) {
                 s_state = BMS_STATE_STANDBY;
                 break;
             }

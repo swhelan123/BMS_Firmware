@@ -102,6 +102,14 @@ run_test test_faults           tests/unit/test_faults.c
 run_test test_balance          tests/unit/test_balance.c
 run_test test_openwire         tests/unit/test_openwire.c
 
+# test_bms_charger: links bms_charger.c against mock_board_can.c (no real CAN
+# hardware) and provides its own minimal bms_measurements_get_cells() stub
+# directly in the test file (bms_measurements.c is not linked here).
+run_test test_bms_charger \
+    tests/unit/test_bms_charger.c \
+    firmware/src/bms/bms_charger.c \
+    tests/mock_bsp/mock_board_can.c
+
 # test_isl28022: links isl28022.c against mock_board_i2c.c (no real I2C hardware).
 run_test test_isl28022 \
     tests/unit/test_isl28022.c \

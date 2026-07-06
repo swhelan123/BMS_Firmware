@@ -68,6 +68,14 @@ static const BmsConfig k_defaults = {
 
     .capacity_mah                = 100000u, /* 100 Ah default — adjust per pack */
 
+    /* 311.0V setpoint, 315.0V clamp (== cell_ov_hard_mv(4200) * cell_count(75)
+     * / 100 at default topology), 10.0A CC, 1.0A taper held 5s to terminate. */
+    .charge_voltage_setpoint_dv  = 3110u,
+    .charge_voltage_max_dv       = 3150u,
+    .charge_current_setpoint_da  = 100u,
+    .charge_taper_current_da     = 10u,
+    .charge_taper_hold_ms        = 5000u,
+
     .reserved                    = {0},
 };
 
@@ -190,9 +198,24 @@ BmsResult bms_config_validate(const BmsConfig *cfg, uint16_t *err_field_offset) 
     /* Capacity */
     if (cfg->capacity_mah == 0u) { FAIL(180); }
 
+    /* Charger CAN setpoints (INV-08). The voltage ceiling is tied to the
+     * configured topology + cell OV hard limit, not a hardcoded number, so
+     * it's automatically correct for both 60- and 75-cell builds. */
+    if (cfg->charge_voltage_setpoint_dv == 0u)                              { FAIL(184); }
+    if (cfg->charge_voltage_setpoint_dv > cfg->charge_voltage_max_dv)        { FAIL(184); }
+    {
+        uint32_t max_allowed_dv = ((uint32_t)cfg->cell_ov_hard_mv * cfg->cell_count) / 100u;
+        if (cfg->charge_voltage_max_dv > max_allowed_dv)                    { FAIL(186); }
+    }
+    if (cfg->charge_current_setpoint_da == 0u)                              { FAIL(188); }
+    if ((uint32_t)cfg->charge_current_setpoint_da * 100u > cfg->overcurrent_hard_ma) { FAIL(188); }
+    if (cfg->charge_taper_current_da == 0u ||
+        cfg->charge_taper_current_da >= cfg->charge_current_setpoint_da)   { FAIL(190); }
+    if (cfg->charge_taper_hold_ms < 1000u)                                  { FAIL(192); }
+
     /* Reserved end must be zero */
-    for (int i = 0; i < 42; i++) {
-        if (cfg->reserved[i] != 0u) { FAIL(184); }
+    for (int i = 0; i < 32; i++) {
+        if (cfg->reserved[i] != 0u) { FAIL(194); }
     }
 
     if (err_field_offset) { *err_field_offset = 0xFFFFu; }

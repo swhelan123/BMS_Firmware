@@ -6,7 +6,7 @@
 # Doc ref: docs/05_config_schema.md
 
 meta:
-  schema_version: 1
+  schema_version: 2
   total_bytes: 226
   magic: 0xBBCC0001
   crc_algorithm: CRC-32/ISO-HDLC
@@ -553,17 +553,69 @@ sections:
         storage_order: 45
         notes: Pack capacity; used for SOC coulomb counting
 
-  # ─── Reserved (42 bytes, offset 184) ─────────────────────────────────────
+  # ─── Charger CAN (Elcon/TC Charger CC/CV setpoints, 10 bytes, offset 184) ──
+  # v2: repurposed from the reserved block. 0.1 V/bit and 0.1 A/bit — matches
+  # the charger's own wire format directly (bms_charger.h).
+
+  charger_can:
+    fields:
+      - name: charge_voltage_setpoint_dv
+        offset: 184
+        size: 2
+        type: uint16
+        units: 0.1V
+        default: 3110
+        validation: "> 0; <= charge_voltage_max_dv"
+        storage_order: 46
+        notes: CV setpoint sent to the charger
+      - name: charge_voltage_max_dv
+        offset: 186
+        size: 2
+        type: uint16
+        units: 0.1V
+        default: 3150
+        validation: "<= cell_ov_hard_mv * cell_count / 100"
+        storage_order: 47
+        notes: Hard clamp; ties charger voltage ceiling to configured topology + cell OV limit
+      - name: charge_current_setpoint_da
+        offset: 188
+        size: 2
+        type: uint16
+        units: 0.1A
+        default: 100
+        validation: "> 0; * 100 <= overcurrent_hard_ma"
+        storage_order: 48
+        notes: CC setpoint sent to the charger
+      - name: charge_taper_current_da
+        offset: 190
+        size: 2
+        type: uint16
+        units: 0.1A
+        default: 10
+        validation: "> 0; < charge_current_setpoint_da"
+        storage_order: 49
+        notes: Output current below this (held charge_taper_hold_ms) means charge complete
+      - name: charge_taper_hold_ms
+        offset: 192
+        size: 2
+        type: uint16
+        units: ms
+        default: 5000
+        validation: ">= 1000"
+        storage_order: 50
+        notes: How long the taper condition must hold before the BMS commands charger stop
+
+  # ─── Reserved (32 bytes, offset 194) ──────────────────────────────────────
 
   reserved_end:
     fields:
       - name: reserved
-        offset: 184
-        size: 42
-        type: uint8[42]
+        offset: 194
+        size: 32
+        type: uint8[32]
         default: all_zeros
         validation: "all bytes == 0x00"
-        storage_order: 46
+        storage_order: 51
         notes: For future schema expansion
 
 # ─── Validation Relationships ─────────────────────────────────────────────────

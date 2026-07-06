@@ -8,6 +8,7 @@
 #include "bms_balance.h"
 #include "bms_protocol.h"
 #include "bms_can.h"
+#include "bms_charger.h"
 #include "bms_soc.h"
 #include "bms_diagnostics.h"
 #include "ltc6812.h"
@@ -27,6 +28,8 @@ static uint32_t s_last_openwire_ms;
 static bool     s_cd_stable;     /* debounced charger-present level */
 static bool     s_cd_last_raw;   /* last raw sample */
 static uint32_t s_cd_change_ms;  /* time the raw level last changed */
+
+static BmsState s_prev_state;    /* edge-detects CAN mode switch on CHARGE entry/exit */
 
 #define CELL_CYCLE_PERIOD_MS   100u
 #define TEMP_CYCLE_PERIOD_MS   500u
@@ -125,6 +128,8 @@ void bms_main_loop_init(void) {
     s_cd_stable    = false;
     s_cd_last_raw  = board_inputs_charge_detect();
     s_cd_change_ms = now;
+
+    s_prev_state = bms_state_get();
 }
 
 void bms_main_loop_run(void) {
@@ -201,7 +206,24 @@ void bms_main_loop_run(void) {
         /* ── Protocol ─────────────────────────────────────────────────────── */
         bms_protocol_tick();
 
-        /* ── CAN telemetry ────────────────────────────────────────────────── */
-        bms_can_tick();
+        /* ── CAN: drive telemetry XOR charger control, never both ─────────── *
+         * The bus runs at a different bit rate in each mode and the drive
+         * network isn't present during charging (TSAC removed), so there is
+         * nothing to broadcast telemetry to anyway. Switch on the edge, not
+         * every tick — board_can_set_charge_mode() is a no-op if already in
+         * the requested mode, but the CAN start/stop calls are one-shot. */
+        BmsState cur_state = bms_state_get();
+        if (cur_state == BMS_STATE_CHARGE && s_prev_state != BMS_STATE_CHARGE) {
+            bms_charger_start();
+        } else if (cur_state != BMS_STATE_CHARGE && s_prev_state == BMS_STATE_CHARGE) {
+            bms_charger_stop();
+        }
+        s_prev_state = cur_state;
+
+        if (cur_state == BMS_STATE_CHARGE) {
+            bms_charger_tick(cfg);
+        } else {
+            bms_can_tick();
+        }
     }
 }

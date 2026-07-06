@@ -86,8 +86,23 @@ typedef struct {
     /* Capacity (4 bytes, offset 180) */
     uint32_t capacity_mah;           /* pack capacity in mAh; used for SOC coulomb counting */
 
-    /* Reserved (42 bytes, offset 184) */
-    uint8_t  reserved[42];
+    /* Charger CAN control (10 bytes, offset 184) — Elcon/TC Charger CC/CV
+     * setpoints. Voltage/current are ceilings the charger holds (CC up to
+     * current_setpoint, then CV at voltage_setpoint). All in 0.1-unit LSBs
+     * to match the charger's wire format directly (no rescaling at the CAN
+     * boundary). See bms_charger.h for the control loop these feed. */
+    uint16_t charge_voltage_setpoint_dv; /* 0.1 V/bit, e.g. 3110 = 311.0 V */
+    uint16_t charge_voltage_max_dv;      /* 0.1 V/bit hard clamp; validated
+                                          * against cell_ov_hard_mv*cell_count */
+    uint16_t charge_current_setpoint_da; /* 0.1 A/bit, e.g. 100 = 10.0 A */
+    uint16_t charge_taper_current_da;    /* 0.1 A/bit — charger output current
+                                          * below this (held taper_hold_ms)
+                                          * means charge is complete */
+    uint16_t charge_taper_hold_ms;       /* taper must hold this long before
+                                          * the BMS commands charger stop */
+
+    /* Reserved (32 bytes, offset 194) */
+    uint8_t  reserved[32];
 } BmsConfig;
 #pragma pack(pop)
 

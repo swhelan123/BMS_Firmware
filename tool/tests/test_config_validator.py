@@ -74,6 +74,10 @@ def _make_segments(count: int) -> BmsConfig:
     cfg.required_cell_mask   = _segment_mask(count)
     cfg.required_temp_mask   = _segment_mask(count)
     cfg.balance_allowed_mask = _segment_mask(count)
+    # Charge voltage ceiling scales with cell count (INV-08); the default
+    # 315.0V clamp is only valid for a full 75-cell pack.
+    cfg.charge_voltage_max_dv      = (cfg.cell_ov_hard_mv * count) // 100
+    cfg.charge_voltage_setpoint_dv = min(cfg.charge_voltage_setpoint_dv, cfg.charge_voltage_max_dv)
     return cfg
 
 def test_60cell_config_passes():

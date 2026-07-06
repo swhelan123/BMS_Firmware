@@ -12,7 +12,7 @@ from ..protocol.crc import crc32_iso_hdlc
 from ..protocol.packet_defs import HW_PROFILE_ID, CONFIG_SCHEMA_SIZE
 
 CONFIG_MAGIC   = 0xBBCC0001
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2  # v2: repurposed 10 of 42 reserved bytes for charger CAN setpoints
 
 # (field_name, struct_code) in storage order. Offsets are derived, not typed
 # by hand — see FIELD_OFFSETS below and the sync test.
@@ -63,7 +63,12 @@ _FIELDS = [
     ('can_base_id',                    'H'),    # 176
     ('reserved_can',                   'H'),    # 178
     ('capacity_mah',                   'I'),    # 180
-    ('reserved',                       '42s'),  # 184
+    ('charge_voltage_setpoint_dv',     'H'),    # 184
+    ('charge_voltage_max_dv',          'H'),    # 186
+    ('charge_current_setpoint_da',     'H'),    # 188
+    ('charge_taper_current_da',        'H'),    # 190
+    ('charge_taper_hold_ms',           'H'),    # 192
+    ('reserved',                       '32s'),  # 194
 ]
 
 _FIELD_NAMES = [name for name, _ in _FIELDS]
@@ -143,8 +148,14 @@ class BmsConfig:
     reserved_can:                   int   = 0
     # Capacity
     capacity_mah:                   int   = 100000  # 100 Ah default — adjust per pack
+    # Charger CAN (Elcon/TC Charger) — 0.1 V/bit, 0.1 A/bit, matches wire format
+    charge_voltage_setpoint_dv:     int   = 3110    # 311.0 V
+    charge_voltage_max_dv:          int   = 3150    # 315.0 V hard clamp (== cell_ov_hard_mv*cell_count/100)
+    charge_current_setpoint_da:     int   = 100     # 10.0 A
+    charge_taper_current_da:        int   = 10      # 1.0 A termination threshold
+    charge_taper_hold_ms:           int   = 5000    # hold time before terminating
     # Reserved
-    reserved:                       bytes = field(default_factory=lambda: bytes(42))
+    reserved:                       bytes = field(default_factory=lambda: bytes(32))
 
     def pack(self) -> bytes:
         """Serialize to 226-byte blob with correct CRC."""

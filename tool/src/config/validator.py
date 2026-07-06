@@ -127,7 +127,32 @@ def validate_config(cfg: BmsConfig) -> tuple:
     if cfg.capacity_mah == 0:
         return fail('capacity_mah', "capacity_mah must be > 0")
 
-    if cfg.reserved != bytes(42):
+    # INV-08: charger CAN setpoints. Voltage ceiling is tied to the
+    # configured topology + cell OV hard limit, not a hardcoded number, so
+    # it's automatically correct for both 60- and 75-cell builds. Mirrors
+    # bms_config.c.
+    if cfg.charge_voltage_setpoint_dv == 0:
+        return fail('charge_voltage_setpoint_dv', "charge_voltage_setpoint_dv must be > 0")
+    if cfg.charge_voltage_setpoint_dv > cfg.charge_voltage_max_dv:
+        return fail('charge_voltage_setpoint_dv',
+                    "charge_voltage_setpoint_dv must be <= charge_voltage_max_dv")
+    max_allowed_dv = (cfg.cell_ov_hard_mv * cfg.cell_count) // 100
+    if cfg.charge_voltage_max_dv > max_allowed_dv:
+        return fail('charge_voltage_max_dv',
+                    f"charge_voltage_max_dv must be <= {max_allowed_dv} "
+                    f"(cell_ov_hard_mv * cell_count / 100)")
+    if cfg.charge_current_setpoint_da == 0:
+        return fail('charge_current_setpoint_da', "charge_current_setpoint_da must be > 0")
+    if cfg.charge_current_setpoint_da * 100 > cfg.overcurrent_hard_ma:
+        return fail('charge_current_setpoint_da',
+                    "charge_current_setpoint_da must not exceed overcurrent_hard_ma")
+    if cfg.charge_taper_current_da == 0 or cfg.charge_taper_current_da >= cfg.charge_current_setpoint_da:
+        return fail('charge_taper_current_da',
+                    "charge_taper_current_da must be > 0 and < charge_current_setpoint_da")
+    if cfg.charge_taper_hold_ms < 1000:
+        return fail('charge_taper_hold_ms', "charge_taper_hold_ms must be >= 1000")
+
+    if cfg.reserved != bytes(32):
         return fail('reserved', "reserved must be zero")
 
     return True, 0xFFFF, "OK"

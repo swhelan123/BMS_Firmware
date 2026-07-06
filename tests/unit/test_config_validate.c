@@ -109,6 +109,12 @@ static void set_segments(BmsConfig *cfg, uint8_t segments) {
         cfg->required_temp_mask[byte]   = keep;
         cfg->balance_allowed_mask[byte] = keep;
     }
+    /* Charge voltage ceiling scales with cell count (INV-08); the default
+     * clamp is only valid for a full 75-cell pack. */
+    cfg->charge_voltage_max_dv = (uint16_t)(((uint32_t)cfg->cell_ov_hard_mv * count) / 100u);
+    if (cfg->charge_voltage_setpoint_dv > cfg->charge_voltage_max_dv) {
+        cfg->charge_voltage_setpoint_dv = cfg->charge_voltage_max_dv;
+    }
     cfg->config_crc32 = 0; cfg->config_crc32 = bms_config_compute_crc(cfg);
 }
 
