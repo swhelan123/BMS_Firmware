@@ -463,6 +463,15 @@ class ConfigPage(QWidget):
             can_watchdog_timeout_ms=kw.get('can_watchdog_timeout_ms', base.can_watchdog_timeout_ms),
             can_base_id=kw.get('can_base_id', base.can_base_id),
             reserved_can=0,
+            # Charger CAN setpoints have no editor widgets yet — pass them
+            # through unchanged from the loaded config, otherwise they'd reset
+            # to the 75-cell dataclass defaults and fail validation on a
+            # smaller pack (charge_voltage_max_dv > cell_ov_hard_mv*cell_count).
+            charge_voltage_setpoint_dv=base.charge_voltage_setpoint_dv,
+            charge_voltage_max_dv=base.charge_voltage_max_dv,
+            charge_current_setpoint_da=base.charge_current_setpoint_da,
+            charge_taper_current_da=base.charge_taper_current_da,
+            charge_taper_hold_ms=base.charge_taper_hold_ms,
             reserved=base.reserved,
             **{k: v for k, v in kw.items()
                if k not in ('can_watchdog_timeout_ms', 'can_base_id')},
