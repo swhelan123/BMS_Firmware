@@ -3,6 +3,7 @@ import threading
 from typing import Optional
 
 from ..protocol.client import ProtocolError
+from ..protocol.bms_defs import BMS_STATE_CHARGE
 from .target_model import TargetModel, TargetRefusedError
 from .app_state import AppState
 from .logging_model import EventLog
@@ -67,6 +68,14 @@ class PollingLoop:
         if self._stop_evt.is_set():
             return
         self._try_poll('faults',      self._model.poll_faults,      self._state.update_faults)
+        if self._stop_evt.is_set():
+            return
+        # Charger status only means anything mid-charge — the CAN link is in
+        # drive mode (500 kbit/s, no RX consumed) the rest of the time, so
+        # polling it then would just repeatedly report status_valid=False.
+        if self._state.values.bms_state == BMS_STATE_CHARGE:
+            self._try_poll('charger_status', self._model.poll_charger_status,
+                           self._state.update_charger)
 
     def _loop(self) -> None:
         while not self._stop_evt.is_set():

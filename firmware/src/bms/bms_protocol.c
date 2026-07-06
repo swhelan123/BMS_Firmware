@@ -7,6 +7,7 @@
 #include "bms_faults.h"
 #include "bms_outputs.h"
 #include "bms_state.h"
+#include "bms_charger.h"
 #include "bms_diagnostics.h"
 #include "bms_balance.h"
 #include "bms_soc.h"
@@ -186,6 +187,24 @@ static void handle_get_faults(uint8_t seq) {
     for (int i=0;i<8;i++) { resp[i]=(uint8_t)(af>>(8*i)); }
     for (int i=0;i<8;i++) { resp[8+i]=(uint8_t)(lf>>(8*i)); }
     send_response(PKT_GET_FAULTS, seq, resp, sizeof(resp), false);
+}
+
+static void handle_get_charger_status(uint8_t seq) {
+    const ChargerStatus *st = bms_charger_get_status();
+    uint8_t resp[PKT_GET_CHARGER_STATUS_RESP_SIZE];
+    resp[0] = st->status_valid ? 1u : 0u;
+    resp[1] = (uint8_t)(st->output_voltage_dv & 0xFFu);
+    resp[2] = (uint8_t)(st->output_voltage_dv >> 8u);
+    resp[3] = (uint8_t)(st->output_current_da & 0xFFu);
+    resp[4] = (uint8_t)(st->output_current_da >> 8u);
+    resp[5] = st->status_flags;
+    resp[6] = bms_charger_termination_requested() ? 1u : 0u;
+    uint32_t age = st->status_valid ? (board_clock_get_ms() - st->last_status_ms) : 0xFFFFFFFFu;
+    resp[7]  = (uint8_t)(age);
+    resp[8]  = (uint8_t)(age >> 8u);
+    resp[9]  = (uint8_t)(age >> 16u);
+    resp[10] = (uint8_t)(age >> 24u);
+    send_response(PKT_GET_CHARGER_STATUS, seq, resp, sizeof(resp), false);
 }
 
 static void handle_get_config(uint8_t seq) {
@@ -550,6 +569,7 @@ static void dispatch_packet(uint16_t pkt_id, uint8_t seq,
         case PKT_GET_TEMPS:          handle_get_temps(seq); break;
         case PKT_GET_FAULTS:              handle_get_faults(seq); break;
         case PKT_CLEAR_LATCHED_FAULTS:    handle_clear_latched_faults(seq, payload, payload_len); break;
+        case PKT_GET_CHARGER_STATUS:      handle_get_charger_status(seq); break;
         case PKT_GET_CONFIG:              handle_get_config(seq); break;
         case PKT_VALIDATE_CONFIG:         handle_validate_config(seq, payload, payload_len); break;
         case PKT_SET_CONFIG_RAM:          handle_set_config_ram(seq, payload, payload_len); break;

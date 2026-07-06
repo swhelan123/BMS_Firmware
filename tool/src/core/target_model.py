@@ -21,6 +21,7 @@ from ..config.schema import BmsConfig
 from ..config.validator import validate_config as _validate_local
 from .app_state import (
     ValuesState, CellsState, TempsState, FaultsState, DiagnosticsState,
+    ChargerStatusState,
 )
 
 
@@ -149,6 +150,19 @@ class TargetModel:
             active_faults  = r['active_faults'],
             latched_faults = r['latched_faults'],
             valid          = True,
+        )
+
+    def poll_charger_status(self) -> ChargerStatusState:
+        self._require_app_mode()
+        r = self._client.get_charger_status()
+        return ChargerStatusState(
+            status_valid          = r['status_valid'],
+            output_voltage_dv     = r['output_voltage_dv'],
+            output_current_da     = r['output_current_da'],
+            status_flags          = r['status_flags'],
+            termination_requested = r['termination_requested'],
+            status_age_ms         = r['status_age_ms'],
+            valid                 = True,
         )
 
     def poll_diagnostics(self) -> DiagnosticsState:

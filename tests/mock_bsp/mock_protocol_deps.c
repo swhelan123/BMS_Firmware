@@ -2,6 +2,7 @@
 #include "bms_measurements.h"
 #include "bms_diagnostics.h"
 #include "bms_state.h"
+#include "bms_charger.h"
 #include "board_i2c.h"
 #include "board_adc.h"
 #include "bms_types.h"
@@ -13,6 +14,10 @@ static TempSnapshot    s_temps;
 static PackMeasurement s_pack;
 static BmsState        s_state = BMS_STATE_STANDBY;
 static BmsDiagnostics  s_diag;
+static ChargerStatus   s_charger_status;
+
+const ChargerStatus *bms_charger_get_status(void)         { return &s_charger_status; }
+bool bms_charger_termination_requested(void)              { return false; }
 
 const CellSnapshot    *bms_measurements_get_cells(void) { return &s_cells; }
 const TempSnapshot    *bms_measurements_get_temps(void) { return &s_temps; }

@@ -6,7 +6,15 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal
 
 from ...core.app_state import AppState
-from ...protocol.bms_defs import STATE_NAMES as _BMS_STATES
+from ...protocol.bms_defs import STATE_NAMES as _BMS_STATES, BMS_STATE_CHARGE
+
+_CHARGER_FLAG_NAMES = {
+    0x01: 'HW failure',
+    0x02: 'Over-temp',
+    0x04: 'AC input fault',
+    0x08: 'No battery / reverse',
+    0x10: 'Comm timeout',
+}
 
 
 def _card(title: str, row: int, grid: QGridLayout) -> QLabel:
@@ -82,6 +90,19 @@ class DashboardPage(QWidget):
         summary_lay.addWidget(left_grp)
         summary_lay.addWidget(right_grp)
         layout.addWidget(summary_grp)
+
+        # ── Charger (Elcon/TC Charger CAN link) — only shown during CHARGE ────
+        self._charger_grp = QGroupBox("Charger")
+        charger_grid = QGridLayout(self._charger_grp)
+        charger_grid.setColumnMinimumWidth(0, 110)
+        self._chg_voltage     = _card("Output Voltage:",         0, charger_grid)
+        self._chg_current     = _card("Output Current:",         1, charger_grid)
+        self._chg_flags       = _card("Status Flags:",           2, charger_grid)
+        self._chg_termination = _card("Terminating:",            3, charger_grid)
+        self._chg_age         = _card("Last Status:",            4, charger_grid)
+        self._charger_grp.setVisible(False)
+        layout.addWidget(self._charger_grp)
+
         layout.addStretch()
 
     def _on_polling_toggle(self) -> None:
@@ -118,7 +139,10 @@ class DashboardPage(QWidget):
                         self._fault_sum, self._latched, self._mflags):
                 lbl.setText("—")
                 lbl.setStyleSheet(self._STYLE_VAL)
+            self._charger_grp.setVisible(False)
             return
+
+        self._refresh_charger(state, vs.bms_state == BMS_STATE_CHARGE)
 
         # measurement_flags: bit 0 = vbat OK, bit 1 = vpack OK, bit 2 = i_batt OK
         vbat_ok  = bool(vs.measurement_flags & 0x01)
@@ -184,3 +208,37 @@ class DashboardPage(QWidget):
             "font-size:16px; font-weight:bold; color:#d4a017;"
             if n_latched else
             "font-size:16px; font-weight:bold; color:#27ae60;")
+
+    def _refresh_charger(self, state: AppState, is_charging: bool) -> None:
+        self._charger_grp.setVisible(is_charging)
+        if not is_charging:
+            return
+
+        cs = state.charger
+        if not cs.valid or not cs.status_valid:
+            for lbl in (self._chg_voltage, self._chg_current, self._chg_flags,
+                        self._chg_termination, self._chg_age):
+                lbl.setText("waiting for charger…")
+                lbl.setStyleSheet(self._STYLE_INVALID)
+            return
+
+        self._chg_voltage.setText(f"{cs.output_voltage_dv / 10:.1f} V")
+        self._chg_voltage.setStyleSheet(self._STYLE_VAL)
+        self._chg_current.setText(f"{cs.output_current_da / 10:.1f} A")
+        self._chg_current.setStyleSheet(self._STYLE_VAL)
+
+        flags = [name for bit, name in _CHARGER_FLAG_NAMES.items()
+                 if cs.status_flags & bit]
+        self._chg_flags.setText(", ".join(flags) if flags else "OK")
+        self._chg_flags.setStyleSheet(
+            self._STYLE_VAL if not flags else
+            "font-size:16px; font-weight:bold; color:#c0392b;")
+
+        self._chg_termination.setText("yes" if cs.termination_requested else "no")
+        self._chg_termination.setStyleSheet(
+            "font-size:16px; font-weight:bold; color:#d4a017;"
+            if cs.termination_requested else self._STYLE_VAL)
+
+        self._chg_age.setText(f"{cs.status_age_ms} ms ago")
+        self._chg_age.setStyleSheet(
+            self._STYLE_VAL if cs.status_age_ms < 3000 else self._STYLE_INVALID)

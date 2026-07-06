@@ -70,6 +70,18 @@ packets:
       Clears latched faults. Only clears faults whose active condition is
       resolved. Returns mask of faults actually cleared.
 
+  - name: GET_CHARGER_STATUS
+    id: 0x0106
+    direction: host_to_device
+    minimum_protocol_version: 1
+    request_type: empty
+    response_type: GetChargerStatusResponse
+    idempotent: true
+    notes: >
+      Elcon/TC Charger CAN link status (see bms_charger.h). Only meaningful
+      in BMS_STATE_CHARGE — status_valid is false if no status frame has been
+      received yet (e.g. not charging, or charger not yet responded).
+
   # ─── Configuration ────────────────────────────────────────────────────────
 
   - name: GET_CONFIG
@@ -246,6 +258,16 @@ response_types:
       - {name: uptime_ms,         offset: 31, size: 4, type: uint32, units: ms}
       - {name: measurement_flags, offset: 35, size: 1, type: uint8,  notes: "bit0=cells_valid bit1=temps_valid bit2=vbat bit3=vpack"}
     total_bytes: 36
+
+  GetChargerStatusResponse:
+    fields:
+      - {name: status_valid,          offset: 0, size: 1, type: uint8,  notes: "0/1 — false until the first charger status frame is received"}
+      - {name: output_voltage_dv,      offset: 1, size: 2, type: uint16, units: 0.1V}
+      - {name: output_current_da,      offset: 3, size: 2, type: uint16, units: 0.1A}
+      - {name: status_flags,           offset: 5, size: 1, type: uint8,  notes: "see bms_charger.h ChargerStatusFlag"}
+      - {name: termination_requested,  offset: 6, size: 1, type: uint8,  notes: "0/1 — BMS has decided to end the charge"}
+      - {name: status_age_ms,          offset: 7, size: 4, type: uint32, units: ms, notes: "time since last status frame; large/stale if comms lost"}
+    total_bytes: 11
 
   GetCellsRequest:
     fields:

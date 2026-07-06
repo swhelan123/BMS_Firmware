@@ -45,6 +45,17 @@ class FaultsState:
 
 
 @dataclass
+class ChargerStatusState:
+    status_valid:          bool = False
+    output_voltage_dv:     int  = 0
+    output_current_da:     int  = 0
+    status_flags:          int  = 0
+    termination_requested: bool = False
+    status_age_ms:         int  = 0
+    valid:                 bool = False  # protocol round-trip itself succeeded
+
+
+@dataclass
 class DiagnosticsState:
     reset_cause:     int   = 0
     pec_cell_errors: int   = 0
@@ -67,6 +78,7 @@ class AppState:
         self.temps       = TempsState()
         self.faults      = FaultsState()
         self.diagnostics = DiagnosticsState()
+        self.charger     = ChargerStatusState()
         self._listeners: List[Callable[[str], None]] = []
 
     # ── Observer ──────────────────────────────────────────────────────────────
@@ -120,6 +132,11 @@ class AppState:
             self.diagnostics = s
         self._notify('diagnostics')
 
+    def update_charger(self, s: ChargerStatusState) -> None:
+        with self._lock:
+            self.charger = s
+        self._notify('charger')
+
     def reset(self) -> None:
         with self._lock:
             self.device      = DeviceState()
@@ -128,4 +145,5 @@ class AppState:
             self.temps       = TempsState()
             self.faults      = FaultsState()
             self.diagnostics = DiagnosticsState()
+            self.charger     = ChargerStatusState()
         self._notify('reset')

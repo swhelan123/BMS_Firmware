@@ -289,6 +289,48 @@ def cmd_faults(args) -> int:
         mgr.disconnect()
 
 
+_CHARGER_STATUS_FLAGS = {
+    0x01: 'HW_FAILURE',
+    0x02: 'OVER_TEMP',
+    0x04: 'AC_INPUT_FAULT',
+    0x08: 'NO_BATTERY_OR_REVERSE',
+    0x10: 'COMM_TIMEOUT',
+}
+
+
+def cmd_charger_status(args) -> int:
+    mgr, model = _connect(args)
+    try:
+        cs = model.poll_charger_status()
+        if args.json:
+            _out({
+                'status_valid':          cs.status_valid,
+                'output_voltage_dv':     cs.output_voltage_dv,
+                'output_current_da':     cs.output_current_da,
+                'status_flags':          cs.status_flags,
+                'termination_requested': cs.termination_requested,
+                'status_age_ms':         cs.status_age_ms,
+            }, True)
+            return 0
+        if not cs.status_valid:
+            print("  status_valid: False (no charger status frame received yet — "
+                  "not charging, or charger hasn't responded)")
+            return 0
+        print(f"  output_voltage: {cs.output_voltage_dv/10:.1f} V")
+        print(f"  output_current: {cs.output_current_da/10:.1f} A")
+        print(f"  status_age:     {cs.status_age_ms} ms")
+        print(f"  termination_requested: {cs.termination_requested}")
+        flags = [name for bit, name in _CHARGER_STATUS_FLAGS.items()
+                 if cs.status_flags & bit]
+        print(f"  status_flags: 0x{cs.status_flags:02X} {flags if flags else '(none)'}")
+        return 0
+    except (ProtocolError, TargetRefusedError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    finally:
+        mgr.disconnect()
+
+
 def cmd_diagnostics(args) -> int:
     mgr, model = _connect(args)
     try:
@@ -906,10 +948,13 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser('connect', help='Connect and show capabilities')
     _add_connect_args(p)
 
-    # ── values / cells / temps / faults / diagnostics ────────────────────────
+    # ── values / cells / temps / faults / diagnostics / charger ──────────────
     for name in ('values', 'faults', 'diagnostics'):
         p = sub.add_parser(name, help=f'Read {name}')
         _add_connect_args(p)
+
+    p = sub.add_parser('charger', help='Elcon/TC Charger CAN link status (meaningful only during charge)')
+    _add_connect_args(p)
 
     for name in ('cells', 'temps'):
         p = sub.add_parser(name, help=f'Read {name}')
@@ -1079,6 +1124,7 @@ def main(argv=None) -> int:
     elif args.command == 'cells':       return cmd_cells(args)
     elif args.command == 'temps':       return cmd_temps(args)
     elif args.command == 'faults':      return cmd_faults(args)
+    elif args.command == 'charger':     return cmd_charger_status(args)
     elif args.command == 'diagnostics': return cmd_diagnostics(args)
 
     elif args.command == 'config':

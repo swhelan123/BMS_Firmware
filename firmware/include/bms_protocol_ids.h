@@ -12,6 +12,7 @@
 #define PKT_GET_TEMPS               ((uint16_t)0x0103u)
 #define PKT_GET_FAULTS              ((uint16_t)0x0104u)
 #define PKT_CLEAR_LATCHED_FAULTS    ((uint16_t)0x0105u)
+#define PKT_GET_CHARGER_STATUS      ((uint16_t)0x0106u)
 #define PKT_GET_CONFIG              ((uint16_t)0x0201u)
 #define PKT_VALIDATE_CONFIG         ((uint16_t)0x0202u)
 #define PKT_SET_CONFIG_RAM          ((uint16_t)0x0203u)
@@ -45,6 +46,7 @@
 #define PKT_GET_CELLS_RESP_FULL     (166u)  /* with 10-byte validity bitfield */
 #define PKT_GET_TEMPS_RESP_SIZE     (152u)  /* 2 + 75*2 */
 #define PKT_GET_FAULTS_RESP_SIZE    (16u)   /* active(8) + latched(8) */
+#define PKT_GET_CHARGER_STATUS_RESP_SIZE (11u) /* see GetChargerStatusResponse in packet_ids.yaml */
 
 /* ── Frame constants ──────────────────────────────────────────────────────── */
 #define FRAME_SOF_0     (0xAAu)

@@ -27,7 +27,7 @@ from typing import Optional
 from ..protocol.framing import encode_frame, FrameDecoder
 from ..protocol.packet_defs import (
     PKT_GET_CAPABILITIES, PKT_GET_VALUES, PKT_GET_CELLS, PKT_GET_TEMPS,
-    PKT_GET_FAULTS, PKT_CLEAR_LATCHED_FAULTS,
+    PKT_GET_FAULTS, PKT_CLEAR_LATCHED_FAULTS, PKT_GET_CHARGER_STATUS,
     PKT_GET_CONFIG, PKT_VALIDATE_CONFIG, PKT_SET_CONFIG_RAM, PKT_STORE_CONFIG,
     PKT_GET_DIAGNOSTICS_SUMMARY, PKT_RUN_OPENWIRE,
     PKT_GET_BOOT_INFO, PKT_ENTER_BOOTLOADER,
@@ -203,6 +203,7 @@ class FakeTarget:
             PKT_GET_TEMPS:              lambda: self._h_temps(seq),
             PKT_GET_FAULTS:             lambda: self._h_faults(seq),
             PKT_CLEAR_LATCHED_FAULTS:   lambda: self._h_clear_latched(seq, payload),
+            PKT_GET_CHARGER_STATUS:     lambda: self._h_charger_status(seq),
             PKT_GET_CONFIG:             lambda: self._h_get_config(seq),
             PKT_VALIDATE_CONFIG:        lambda: self._h_validate_config(seq, payload),
             PKT_SET_CONFIG_RAM:         lambda: self._h_set_config_ram(seq, payload),
@@ -296,6 +297,12 @@ class FakeTarget:
     def _h_faults(self, seq: int) -> bytes:
         resp = struct.pack('<QQ', self._active_faults, self._latched_faults)
         return self._respond(PKT_GET_FAULTS, resp, seq)
+
+    def _h_charger_status(self, seq: int) -> bytes:
+        # The fake target doesn't simulate a live Elcon CAN link — status_valid
+        # stays False, matching real firmware before any status frame arrives.
+        resp = struct.pack('<BHHBBI', 0, 0, 0, 0, 0, 0xFFFFFFFF)
+        return self._respond(PKT_GET_CHARGER_STATUS, resp, seq)
 
     def _h_clear_latched(self, seq: int, payload: bytes) -> bytes:
         mask = struct.unpack_from('<Q', payload)[0] if len(payload) >= 8 else (2**64 - 1)

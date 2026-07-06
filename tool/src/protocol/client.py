@@ -9,7 +9,7 @@ from typing import Optional
 from .framing import encode_frame, FrameDecoder, FrameError
 from .packet_defs import (
     PKT_GET_CAPABILITIES, PKT_GET_VALUES, PKT_GET_CELLS, PKT_GET_TEMPS,
-    PKT_GET_FAULTS, PKT_CLEAR_LATCHED_FAULTS,
+    PKT_GET_FAULTS, PKT_CLEAR_LATCHED_FAULTS, PKT_GET_CHARGER_STATUS,
     PKT_GET_CONFIG, PKT_VALIDATE_CONFIG, PKT_SET_CONFIG_RAM, PKT_STORE_CONFIG,
     PKT_GET_BOOT_INFO, PKT_ENTER_BOOTLOADER,
     PKT_BOOT_UPDATE_BEGIN, PKT_BOOT_UPDATE_CHUNK,
@@ -141,6 +141,18 @@ class BmsProtocolClient:
         return {
             'active_faults':  struct.unpack_from('<Q', p, 0)[0],
             'latched_faults': struct.unpack_from('<Q', p, 8)[0],
+        }
+
+    def get_charger_status(self) -> dict:
+        p = self.send_request(PKT_GET_CHARGER_STATUS)
+        age_ms = struct.unpack_from('<I', p, 7)[0]
+        return {
+            'status_valid':          bool(p[0]),
+            'output_voltage_dv':     struct.unpack_from('<H', p, 1)[0],
+            'output_current_da':     struct.unpack_from('<H', p, 3)[0],
+            'status_flags':          p[5],
+            'termination_requested': bool(p[6]),
+            'status_age_ms':         age_ms,  # 0xFFFFFFFF if no status frame ever received
         }
 
     def clear_latched_faults(self, mask: int) -> int:
