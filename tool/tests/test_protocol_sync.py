@@ -88,6 +88,32 @@ class TestFaultBitSync:
             assert const == bit, f"FAULT_BIT_{name}={const}, table index {bit}"
 
 
+# ── Permission blocking masks: bms_defs ↔ YAML permission_effect ─────────────
+
+class TestBlockingMaskSync:
+    _MASKS = {
+        'master_ok':      'FAULT_BLOCKS_MASTER_OK_MASK',
+        'discharge_perm': 'FAULT_BLOCKS_DISCHARGE_MASK',
+        'charge_perm':    'FAULT_BLOCKS_CHARGE_MASK',
+        'charger_safety': 'FAULT_BLOCKS_CHARGER_SAFETY_MASK',
+    }
+
+    def test_masks_match_yaml_permission_effects(self):
+        doc = yaml.safe_load(FAULT_YAML.read_text())
+        for perm, mask_name in self._MASKS.items():
+            expected = 0
+            for entry in doc['faults']:
+                if 'bit' not in entry:
+                    continue
+                if perm in entry['permission_effect'].get('blocks', []):
+                    expected |= 1 << entry['bit']
+            actual = getattr(bms_defs, mask_name)
+            assert actual == expected, (
+                f"{mask_name}=0x{actual:X} but YAML blocks-list gives "
+                f"0x{expected:X} (diff bits: "
+                f"{bms_defs.fault_names_from_mask(actual ^ expected)})")
+
+
 # ── BMS state enum: bms_defs ↔ firmware header ───────────────────────────────
 
 class TestStateSync:

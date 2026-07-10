@@ -9,7 +9,7 @@ PyQt6 = pytest.importorskip('PyQt6', reason="PyQt6 not installed — GUI tests s
 
 from tool.src.core.app_state import (
     AppState, ValuesState, CellsState, TempsState, FaultsState,
-    DiagnosticsState,
+    DiagnosticsState, ChargerStatusState,
 )
 from tool.src.connection.device_state import DeviceState, DeviceMode, CapabilitiesState
 
@@ -434,6 +434,73 @@ class TestFaultsPage:
 
 # ── Config page ───────────────────────────────────────────────────────────────
 
+class TestChargingPage:
+    def test_constructs(self, qapp):
+        from tool.src.gui.pages.charging import ChargingPage
+        page = ChargingPage(AppState())
+        assert page is not None
+
+    def test_blocked_when_charge_blocking_faults(self, qapp):
+        from tool.src.gui.pages.charging import ChargingPage
+        state = AppState()
+        # ISOSPI_CELL (bit 13) blocks charge
+        state.update_values(ValuesState(
+            bms_state=1, active_faults=(1 << 13), valid=True))
+        page = ChargingPage(state)
+        page.refresh(state)
+        assert "BLOCKED" in page._ready_lbl.text()
+        assert "ISOSPI_CELL" in page._blockers_lbl.text()
+
+    def test_ready_when_no_blockers(self, qapp):
+        from tool.src.gui.pages.charging import ChargingPage
+        state = AppState()
+        # CELL_UV (bit 1) blocks discharge but NOT charge
+        state.update_values(ValuesState(
+            bms_state=1, active_faults=(1 << 1), valid=True))
+        page = ChargingPage(state)
+        page.refresh(state)
+        assert "READY" in page._ready_lbl.text()
+        assert page._blockers_lbl.text() == ""
+
+    def test_charging_shows_charger_frames(self, qapp):
+        from tool.src.gui.pages.charging import ChargingPage
+        state = AppState()
+        state.update_charger(ChargerStatusState(
+            status_valid=True, output_voltage_dv=1240, output_current_da=98,
+            status_flags=0, termination_requested=False,
+            status_age_ms=500, valid=True))
+        state.update_values(ValuesState(
+            bms_state=3, active_faults=0, outputs_state=0x0D,
+            measurement_flags=0x07, i_batt_ma=9800, valid=True))
+        page = ChargingPage(state)
+        page.refresh(state)
+        assert page._ready_lbl.text() == "CHARGING"
+        assert "124.0" in page._chg_voltage.text()
+        assert "9.8" in page._chg_current.text()
+        assert page._chg_flags.text() == "OK"
+        assert page._charge_perm.text() == "asserted"
+
+    def test_stale_status_flagged(self, qapp):
+        from tool.src.gui.pages.charging import ChargingPage
+        state = AppState()
+        state.update_charger(ChargerStatusState(
+            status_valid=True, output_voltage_dv=1240, output_current_da=98,
+            status_flags=0, termination_requested=False,
+            status_age_ms=10000, valid=True))
+        state.update_values(ValuesState(bms_state=3, valid=True))
+        page = ChargingPage(state)
+        page.refresh(state)
+        assert "STALE" in page._chg_age.text()
+
+    def test_refresh_signal(self, qapp):
+        from tool.src.gui.pages.charging import ChargingPage
+        page = ChargingPage(AppState())
+        fired = []
+        page.refresh_requested.connect(lambda: fired.append(1))
+        page._refresh_btn.click()
+        assert len(fired) == 1
+
+
 class TestConfigPage:
     def _make_page(self, qapp, state=None):
         from tool.src.gui.pages.config import ConfigPage
@@ -636,7 +703,7 @@ class TestBmsMainWindow:
     def test_tab_count(self, qapp):
         from tool.src.gui.main import BmsMainWindow
         win = BmsMainWindow()
-        assert win._tabs.count() == 9
+        assert win._tabs.count() == 10
         win.close()
 
     def test_runtime_tabs_disabled_when_disconnected(self, qapp):
@@ -650,7 +717,7 @@ class TestBmsMainWindow:
         from tool.src.gui.main import BmsMainWindow
         win = BmsMainWindow()
         assert win._tabs.isTabEnabled(0)  # Connection
-        assert win._tabs.isTabEnabled(8)  # Logs
+        assert win._tabs.isTabEnabled(9)  # Logs
         win.close()
 
     def test_polling_stops_on_bootloader_transition(self, qapp):

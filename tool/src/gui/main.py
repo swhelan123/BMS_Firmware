@@ -22,6 +22,7 @@ from .pages.dashboard import DashboardPage
 from .pages.cells import CellsPage
 from .pages.temperatures import TemperaturesPage
 from .pages.faults import FaultsPage
+from .pages.charging import ChargingPage
 from .pages.config import ConfigPage
 from .pages.firmware_flash import FirmwareFlashPage
 from .pages.logs import LogsPage
@@ -96,6 +97,7 @@ class BmsMainWindow(QMainWindow):
         self._page_cells   = CellsPage(self._state)
         self._page_temps   = TemperaturesPage(self._state)
         self._page_fault   = FaultsPage(self._state, self)
+        self._page_charge  = ChargingPage(self._state)
         self._page_cfg     = ConfigPage(self._state, self)
         self._page_flash   = FirmwareFlashPage(self._state, self)
         self._page_logs    = LogsPage(self._evt_log, self._pkt_log)
@@ -106,6 +108,7 @@ class BmsMainWindow(QMainWindow):
         tabs.addTab(self._page_cells,   "Cells")
         tabs.addTab(self._page_temps,   "Temperatures")
         tabs.addTab(self._page_fault,   "Faults")
+        tabs.addTab(self._page_charge,  "Charging")
         tabs.addTab(self._page_cfg,     "Config")
         tabs.addTab(self._page_flash,   "Firmware Flash")
         tabs.addTab(self._page_logs,    "Logs")
@@ -129,6 +132,8 @@ class BmsMainWindow(QMainWindow):
 
         self._page_temps.measure_once_requested.connect(self._on_measure_temps_once)
         self._page_temps.refresh_requested.connect(self._on_refresh_temps)
+
+        self._page_charge.refresh_requested.connect(self._on_refresh_charging)
 
     # ── Banner update ─────────────────────────────────────────────────────────
 
@@ -303,6 +308,15 @@ class BmsMainWindow(QMainWindow):
         except Exception as e:
             self._evt_log.append(f"refresh_temps error: {e}")
 
+    def _on_refresh_charging(self) -> None:
+        if self._model is None:
+            return
+        try:
+            self._state.update_values(self._model.poll_values())
+            self._state.update_charger(self._model.poll_charger_status())
+        except Exception as e:
+            self._evt_log.append(f"refresh_charging error: {e}")
+
     # ── State update dispatch ─────────────────────────────────────────────────
 
     def _on_state_updated(self, key: str) -> None:
@@ -326,12 +340,14 @@ class BmsMainWindow(QMainWindow):
         self._page_cells.refresh(self._state)
         self._page_temps.refresh(self._state)
         self._page_fault.refresh(self._state)
+        self._page_charge.refresh(self._state)
         self._page_cfg.refresh(self._state)
         self._page_flash.refresh(self._state)
         self._page_logs.refresh()
 
         # Tab indices: 0=Connection, 1=Bring-Up, 2=Dashboard, 3=Cells,
-        #              4=Temps, 5=Faults, 6=Config, 7=Firmware Flash, 8=Logs
+        #              4=Temps, 5=Faults, 6=Charging, 7=Config,
+        #              8=Firmware Flash, 9=Logs
         is_app = (device.mode == DeviceMode.BMS_APP)
         is_bl  = (device.mode == DeviceMode.BOOTLOADER)
         is_any = is_app or is_bl
@@ -343,6 +359,7 @@ class BmsMainWindow(QMainWindow):
             is_app,  # Cells
             is_app,  # Temperatures
             is_app,  # Faults
+            is_app,  # Charging
             is_app,  # Config
             is_any,  # Firmware Flash: app or bootloader
             True,    # Logs: always
