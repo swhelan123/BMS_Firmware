@@ -35,8 +35,11 @@
                                         * the sensor bias switch is not opened while
                                         * the sensor voltage is being sampled */
 #define LTC_CMD_ADAX        (0x0560u)  /* Start Aux ADC (all GPIO, 7kHz)       */
-#define LTC_CMD_ADOW_PDN    (0x0228u)  /* Open-Wire check, pull-down (PUP=0)   */
-#define LTC_CMD_ADOW_PUP    (0x0268u)  /* Open-Wire check, pull-up  (PUP=1)    */
+#define LTC_CMD_ADOW_PDN    (0x0328u)  /* Open-Wire, pull-down (PUP=0), MD=10 normal 7kHz */
+#define LTC_CMD_ADOW_PUP    (0x0368u)  /* Open-Wire, pull-up  (PUP=1), MD=10 normal 7kHz.
+                                        * MD must match ADCV timing: previous MD=00 (422Hz)
+                                        * encoding took ~12.8ms/conversion — longer than the
+                                        * fixed 4ms wait, so registers were read mid-conversion. */
 #define LTC_CMD_CLRCELL     (0x0711u)  /* Clear Cell Voltage registers         */
 #define LTC_CMD_CLRAUX      (0x0712u)  /* Clear Aux registers                  */
 #define LTC_CMD_CLRSTAT     (0x0713u)  /* Clear Status registers               */

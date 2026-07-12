@@ -288,82 +288,97 @@ BmsResult ltc6812_cell_chain_clear_balance(BmsChain chain, uint8_t num_ics) {
 }
 
 /* ── Open-wire detection ───────────────────────────────────────────────────── */
-/* ADOW command: pull-up (PUP=1) or pull-down (PUP=0) mode.
- * Sequence: run ADOW PUP=0, read all cells → save; run ADOW PUP=1, read all cells → save.
- * Open wire on cell N: |V_PUP[N] - V_PDN[N]| large (cell disconnected) or
- *   V_PDN[N] = 0 (wire between N-1 and N broken from negative side). */
+/* LTC6812-1 datasheet Rev B pp.30-31 "Open Wire Check (ADOW Command)":
+ *   1. Run ADOW PUP=1 N times, read cells 1..15 → CELLPU(n).
+ *   2. Run ADOW PUP=0 N times, read cells 1..15 → CELLPD(n).
+ *   3. CELLΔ(n) = CELLPU(n) − CELLPD(n) for n = 2..15.
+ *   4. C(n) open (n=1..14) when CELLΔ(n+1) < −400 mV.
+ *      C(0)  open when CELLPU(1) = 0.  C(15) open when CELLPD(15) = 0.
+ * N per datasheet Table 14 scales with external C-pin capacitance: the slave
+ * board has 100 nF per C input → 10 ADOW commands per direction (normal mode).
+ * A C(n) pin is the tap between cell n and cell n+1: both neighbours'
+ * readings are unreliable, so both cells are flagged in the result mask. */
+#define ADOW_CMDS_PER_DIRECTION  (10u)   /* Table 14: 100 nF externals, normal mode */
+#define ADOW_ENDPOINT_ZERO_MV    (0u)    /* CELLPU(1)/CELLPD(15) exact-zero test */
+
+/* Run one ADOW direction (repeated commands), then read all cell groups. */
+static BmsResult adow_pass(BmsChain chain, uint8_t num_ics, uint16_t adow_cmd,
+                           uint16_t v_out[CELL_IC_COUNT][CELLS_PER_IC]) {
+    static const uint16_t cv_cmds[5] = {
+        LTC_CMD_RDCVA, LTC_CMD_RDCVB, LTC_CMD_RDCVC, LTC_CMD_RDCVD, LTC_CMD_RDCVE
+    };
+    BmsResult r;
+
+    isospi_wakeup(chain);
+    for (uint8_t i = 0; i < ADOW_CMDS_PER_DIRECTION; i++) {
+        r = isospi_cmd_broadcast(chain, adow_cmd);
+        if (r != BMS_OK) { return r; }
+        r = poll_adc_done(chain);
+        if (r != BMS_OK) { return r; }
+    }
+
+    uint8_t grp_data[ISOSPI_MAX_ICS * LTC6812_REG_GROUP_BYTES];
+    bool pec_grp[ISOSPI_MAX_ICS];
+    bool pec_ok[CELL_IC_COUNT];
+    for (uint8_t ic = 0; ic < num_ics; ic++) { pec_ok[ic] = true; }
+
+    for (uint8_t grp = 0; grp < 5u; grp++) {
+        r = isospi_read_all(chain, cv_cmds[grp], grp_data, num_ics, pec_grp);
+        if (r != BMS_OK) { return r; }
+        for (uint8_t ic = 0; ic < num_ics; ic++) {
+            if (!pec_grp[ic]) { pec_ok[ic] = false; }
+            const uint8_t *g = &grp_data[ic * LTC6812_REG_GROUP_BYTES];
+            uint8_t base = grp * 3u;
+            for (uint8_t c = 0; c < 3u && (base + c) < CELLS_PER_IC; c++) {
+                v_out[ic][base + c] = decode_cell_mv(&g[c * 2u]);
+            }
+        }
+    }
+    for (uint8_t ic = 0; ic < num_ics; ic++) {
+        if (!pec_ok[ic]) { return BMS_ERR_PEC; }
+    }
+    return BMS_OK;
+}
+
 BmsResult ltc6812_run_open_wire(BmsChain chain, uint8_t num_ics,
                                  bool open_wire_detected[TOTAL_CELL_COUNT]) {
     if (chain != BMS_CHAIN_CELL) { return BMS_ERR_INVALID_ARG; }
 
-    isospi_wakeup(chain);
-
     uint16_t v_pup[CELL_IC_COUNT][CELLS_PER_IC];
     uint16_t v_pdn[CELL_IC_COUNT][CELLS_PER_IC];
-    bool pec_ok[CELL_IC_COUNT];
 
-    /* Pull-down pass (PUP=0): ADOW cmd with PUP=0 */
-    BmsResult r = isospi_cmd_broadcast(chain, LTC_CMD_ADOW_PDN);
+    BmsResult r = adow_pass(chain, num_ics, LTC_CMD_ADOW_PUP, v_pup);
     if (r != BMS_OK) { return r; }
-    r = poll_adc_done(chain);
+    r = adow_pass(chain, num_ics, LTC_CMD_ADOW_PDN, v_pdn);
     if (r != BMS_OK) { return r; }
 
-    /* Read RDCVA-RDCVE for PDN result */
-    static const uint16_t cv_cmds[5] = {
-        LTC_CMD_RDCVA, LTC_CMD_RDCVB, LTC_CMD_RDCVC, LTC_CMD_RDCVD, LTC_CMD_RDCVE
-    };
-    uint8_t grp_data[ISOSPI_MAX_ICS * LTC6812_REG_GROUP_BYTES];
-    bool pec_grp[ISOSPI_MAX_ICS];
+    for (uint8_t ic = 0; ic < num_ics; ic++) {
+        bool pin_open[CELLS_PER_IC + 1u];   /* C(0)..C(15) of this IC */
+        memset(pin_open, 0, sizeof(pin_open));
 
-    for (uint8_t ic = 0; ic < num_ics; ic++) { pec_ok[ic] = true; }
-
-    for (uint8_t grp = 0; grp < 5u; grp++) {
-        r = isospi_read_all(chain, cv_cmds[grp], grp_data, num_ics, pec_grp);
-        for (uint8_t ic = 0; ic < num_ics; ic++) {
-            if (!pec_grp[ic]) { pec_ok[ic] = false; }
-            const uint8_t *g = &grp_data[ic * LTC6812_REG_GROUP_BYTES];
-            uint8_t base = grp * 3u;
-            for (uint8_t c = 0; c < 3u && (base + c) < CELLS_PER_IC; c++) {
-                v_pdn[ic][base + c] = decode_cell_mv(&g[c * 2u]);
-            }
+        /* Endpoints (datasheet step 4, special cases). */
+        if (v_pup[ic][0] <= ADOW_ENDPOINT_ZERO_MV) { pin_open[0] = true; }
+        if (v_pdn[ic][CELLS_PER_IC - 1u] <= ADOW_ENDPOINT_ZERO_MV) {
+            pin_open[CELLS_PER_IC] = true;
         }
-    }
-    for (uint8_t ic = 0; ic < num_ics; ic++) {
-        if (!pec_ok[ic]) { return BMS_ERR_PEC; }
-    }
 
-    /* Pull-up pass (PUP=1): ADOW cmd with PUP=1 */
-    isospi_wakeup(chain);
-    r = isospi_cmd_broadcast(chain, LTC_CMD_ADOW_PUP);
-    if (r != BMS_OK) { return r; }
-    r = poll_adc_done(chain);
-    if (r != BMS_OK) { return r; }
-
-    for (uint8_t ic = 0; ic < num_ics; ic++) { pec_ok[ic] = true; }
-
-    for (uint8_t grp = 0; grp < 5u; grp++) {
-        r = isospi_read_all(chain, cv_cmds[grp], grp_data, num_ics, pec_grp);
-        for (uint8_t ic = 0; ic < num_ics; ic++) {
-            if (!pec_grp[ic]) { pec_ok[ic] = false; }
-            const uint8_t *g = &grp_data[ic * LTC6812_REG_GROUP_BYTES];
-            uint8_t base = grp * 3u;
-            for (uint8_t c = 0; c < 3u && (base + c) < CELLS_PER_IC; c++) {
-                v_pup[ic][base + c] = decode_cell_mv(&g[c * 2u]);
-            }
+        /* Intermediate pins: C(n) open when CELLΔ(n+1) < −400 mV, n = 1..14.
+         * CELLΔ(n+1) uses 0-based array index n. */
+        for (uint8_t n = 1u; n < CELLS_PER_IC; n++) {
+            int32_t delta = (int32_t)v_pup[ic][n] - (int32_t)v_pdn[ic][n];
+            if (delta < -400) { pin_open[n] = true; }
         }
-    }
-    for (uint8_t ic = 0; ic < num_ics; ic++) {
-        if (!pec_ok[ic]) { return BMS_ERR_PEC; }
-    }
 
-    /* Evaluate open-wire condition.
-     * An open wire is detected when V_PUP[n] - V_PDN[n] > threshold.
-     * Conservative threshold: 400 mV (OQ-TMP: calibrate with board capacitance). */
-    for (uint8_t ic = 0; ic < num_ics; ic++) {
-        for (uint8_t c = 0; c < CELLS_PER_IC; c++) {
-            uint8_t idx = ic * CELLS_PER_IC + c;
-            int32_t delta = (int32_t)v_pup[ic][c] - (int32_t)v_pdn[ic][c];
-            open_wire_detected[idx] = (delta > 400);
+        /* Pin C(n) is the tap between cell n and cell n+1 (1-based): flag
+         * both adjacent cells — neither can be measured across an open tap. */
+        for (uint8_t n = 0; n <= CELLS_PER_IC; n++) {
+            if (!pin_open[n]) { continue; }
+            if (n > 0u) {
+                open_wire_detected[ic * CELLS_PER_IC + (n - 1u)] = true;
+            }
+            if (n < CELLS_PER_IC) {
+                open_wire_detected[ic * CELLS_PER_IC + n] = true;
+            }
         }
     }
     return BMS_OK;
